@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>병원 블로그 생성기</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --line:#e3e6ea; --text:#1d2330; --muted:#6b7280; --accent:#03c75a; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.6 system-ui, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; }
+  header { padding:20px 24px; border-bottom:1px solid var(--line); background:var(--card); }
+  header h1 { margin:0; font-size:18px; }
+  main { display:grid; grid-template-columns:340px 1fr; gap:20px; padding:20px 24px; max-width:1300px; margin:0 auto; }
+  @media (max-width:860px) { main { grid-template-columns:1fr; padding:16px; } }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:18px; }
+  .card + .card { margin-top:16px; }
+  h2.sec { font-size:14px; margin:0 0 12px; color:var(--muted); font-weight:600; }
+  label { display:block; font-size:13px; font-weight:600; margin:12px 0 4px; }
+  label small { font-weight:400; color:var(--muted); }
+  input { width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:8px; font:inherit; }
+  input:focus { outline:2px solid var(--accent); border-color:transparent; }
+  button { font:inherit; border:0; border-radius:8px; padding:10px 14px; cursor:pointer; }
+  .primary { width:100%; margin-top:16px; background:var(--accent); color:#fff; font-weight:700; }
+  .primary:disabled { opacity:.6; cursor:wait; }
+  .ghost { background:#eef0f3; }
+  .topic { display:block; margin:0 0 8px; font-weight:400; cursor:pointer; }
+  .topic input { position:absolute; opacity:0; width:auto; }
+  .topic div { border:1px solid var(--line); border-radius:8px; padding:10px 12px; }
+  .topic b { display:block; font-size:14px; }
+  .topic small { color:var(--muted); font-size:12px; }
+  .topic input:checked + div { border-color:var(--accent); background:#f3faf6; box-shadow:0 0 0 1px var(--accent); }
+  .topic input:focus-visible + div { outline:2px solid var(--text); }
+  .topic input[type=text] { position:static; opacity:1; width:100%; margin-top:6px; }
+  .cands { font-size:12px; color:var(--muted); margin:4px 0 0; }
+  h2.sec small { font-weight:400; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  td { padding:5px 0; border-bottom:1px solid var(--line); }
+  td:last-child { text-align:right; color:var(--muted); }
+  .paper { font-size:13px; margin-bottom:12px; }
+  .paper a { color:var(--text); font-weight:600; }
+  .paper p { margin:4px 0 0; color:var(--muted); }
+  .toolbar { display:flex; gap:8px; align-items:center; margin-bottom:12px; flex-wrap:wrap; }
+  .toolbar .count { margin-left:auto; color:var(--muted); font-size:13px; }
+  #preview { min-height:400px; }
+  #preview h1 { font-size:24px; } #preview h2 { font-size:20px; margin-top:28px; } #preview h3 { font-size:17px; }
+  #preview blockquote { margin:0; padding:8px 14px; border-left:3px solid var(--accent); background:#f3faf6; }
+  .empty { color:var(--muted); text-align:center; padding:120px 0; }
+  .warn { background:#fff7e6; border:1px solid #ffd591; border-radius:8px; padding:8px 12px; font-size:13px; margin-bottom:12px; }
+  .toast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%); background:#1d2330; color:#fff; padding:8px 16px; border-radius:8px; opacity:0; transition:opacity .2s; }
+  .toast.show { opacity:1; }
+</style>
+</head>
+<body>
+<header><h1>병원 블로그 글 생성기</h1></header>
+<main>
+  <aside>
+    <form class="card" id="form">
+      <h2 class="sec">입력</h2>
+      <label for="keyword">메인 키워드</label>
+      <input id="keyword" required maxlength="50" placeholder="예: 허리디스크">
+      <label for="hospital">병원명 <small>선택</small></label>
+      <input id="hospital" maxlength="50" placeholder="예: ○○정형외과">
+      <button class="primary" id="find">① 세부 주제 찾기</button>
+    </form>
+    <section class="card" id="topicCard" hidden>
+      <h2 class="sec">세부 주제 추천 <small id="topicCost"></small></h2>
+      <div id="topics"></div>
+      <p class="cands" id="cands"></p>
+      <button class="primary" id="go">② 이 주제로 글 생성</button>
+    </section>
+    <section class="card" id="kwCard" hidden><h2 class="sec">연관 키워드 (월 검색량)</h2><table id="kw"></table></section>
+    <section class="card" id="paperCard" hidden><h2 class="sec">참고 논문</h2><div id="papers"></div></section>
+  </aside>
+
+  <section class="card">
+    <div class="toolbar">
+      <button class="ghost" id="copyRich" disabled>블로그용 복사</button>
+      <button class="ghost" id="copyHtml" disabled>HTML 복사</button>
+      <span class="count" id="count"></span>
+    </div>
+    <div id="warnings"></div>
+    <article id="preview"><p class="empty">키워드를 입력하고 글을 생성하세요.</p></article>
+  </section>
+</main>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let html = "";
+
+function toast(msg) {
+  $("toast").textContent = msg;
+  $("toast").classList.add("show");
+  setTimeout(() => $("toast").classList.remove("show"), 1500);
+}
+
+let suggestion = null;  // /api/subtopics 결과
+
+async function post(url, body) {
+  const res = await fetch(url, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+  const data = await res.json();
+  if (!res.ok) throw new Error(typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail));
+  return data;
+}
+
+// ① 네이버 자동완성 → 세부 주제 3개 추천
+$("form").onsubmit = async e => {
+  e.preventDefault();
+  $("find").disabled = true;
+  $("find").textContent = "주제 찾는 중…";
+  try {
+    suggestion = await post("/api/subtopics", {keyword: $("keyword").value.trim()});
+    const opts = suggestion.subtopics.map((t, i) => `
+      <label class="topic"><input type="radio" name="topic" value="${i}" ${i === 0 ? "checked" : ""}>
+        <div><b>${esc(t.search_keyword)}</b><small>${esc(t.intent)}</small></div></label>`);
+    opts.push(`<label class="topic"><input type="radio" name="topic" value="all">
+        <div><b>${esc($("keyword").value.trim())} 전반</b><small>세부 주제 없이 전체적으로</small></div></label>`);
+    opts.push(`<label class="topic"><input type="radio" name="topic" value="custom">
+        <div><b>직접 입력</b><input type="text" id="customSub" maxlength="30" placeholder="예: 임산부, 20대"></div></label>`);
+    $("topics").innerHTML = opts.join("");
+    $("customSub").onfocus = () => { document.querySelector("input[name=topic][value=custom]").checked = true; };
+    $("cands").textContent = suggestion.candidates.length ? `네이버 자동완성: ${suggestion.candidates.join(", ")}` : "";
+    $("topicCost").textContent = suggestion.api_equivalent_usd ? `(API였다면 약 $${suggestion.api_equivalent_usd.toFixed(3)})` : "";
+    $("topicCard").hidden = false;
+  } catch (err) {
+    toast(`오류: ${err.message}`);
+  } finally {
+    $("find").disabled = false;
+    $("find").textContent = "① 세부 주제 찾기";
+  }
+};
+
+// ② 선택한 주제로 글 생성
+$("go").onclick = async () => {
+  const pick = document.querySelector("input[name=topic]:checked").value;
+  const body = {keyword: $("keyword").value.trim(), hospital: $("hospital").value.trim(), pubmed_query: suggestion.disease_en};
+  if (pick === "custom") {
+    body.subtopic = $("customSub").value.trim();
+    if (!body.subtopic) return toast("직접 입력할 주제를 적어 주세요");
+  } else if (pick !== "all") {
+    const t = suggestion.subtopics[+pick];
+    Object.assign(body, {subtopic: t.topic, intent: t.intent, pubmed_query: t.pubmed_query});
+  }
+
+  $("go").disabled = true;
+  $("go").textContent = "생성 중… (1~2분)";
+  $("preview").innerHTML = '<p class="empty">키워드·논문 수집 후 글을 쓰는 중입니다…</p>';
+  $("warnings").innerHTML = "";
+  try {
+    const data = await post("/api/generate", body);
+
+    html = data.html;
+    // Claude가 만든 HTML이지만 script 등은 막기 위해 허용 태그만 남김
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    doc.querySelectorAll("*").forEach(el => {
+      if (!/^(HTML|HEAD|BODY|H1|H2|H3|P|UL|OL|LI|STRONG|EM|BLOCKQUOTE|BR)$/.test(el.tagName)) el.replaceWith(...el.childNodes);
+      else [...el.attributes].forEach(a => el.removeAttribute(a.name));
+    });
+    $("preview").innerHTML = doc.body.innerHTML;
+    const via = data.engine === "claude-code"
+      ? `Claude Code 구독 사용${data.api_equivalent_usd ? ` (API였다면 약 $${data.api_equivalent_usd.toFixed(2)})` : ""}`
+      : "Anthropic API 사용";
+    $("count").textContent = `${$("preview").innerText.length.toLocaleString()}자 · ${via}`;
+    $("copyRich").disabled = $("copyHtml").disabled = false;
+
+    $("warnings").innerHTML = data.warnings.map(w => `<div class="warn">${esc(w)}</div>`).join("");
+    $("kwCard").hidden = !data.keywords.length;
+    $("kw").innerHTML = data.keywords.map(k => `<tr><td>${esc(k.keyword)}</td><td>${k.total.toLocaleString()}</td></tr>`).join("");
+    $("paperCard").hidden = !data.papers.length;
+    $("papers").innerHTML = data.papers.map(p =>
+      `<div class="paper"><a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.title)}</a>
+       <p>${esc(p.journal)} · ${esc(p.year)}</p><p>${esc(p.summary)}</p></div>`).join("");
+  } catch (err) {
+    $("preview").innerHTML = `<p class="empty">오류: ${esc(err.message)}</p>`;
+  } finally {
+    $("go").disabled = false;
+    $("go").textContent = "② 이 주제로 글 생성";
+  }
+};
+
+// 네이버 스마트에디터에 붙여넣으면 제목·소제목 서식이 유지됨
+$("copyRich").onclick = async () => {
+  const rich = $("preview").innerHTML;
+  await navigator.clipboard.write([new ClipboardItem({
+    "text/html": new Blob([rich], {type: "text/html"}),
+    "text/plain": new Blob([$("preview").innerText], {type: "text/plain"}),
+  })]);
+  toast("서식 포함 복사됨");
+};
+$("copyHtml").onclick = async () => { await navigator.clipboard.writeText(html); toast("HTML 복사됨"); };
+</script>
+</body>
+</html>
