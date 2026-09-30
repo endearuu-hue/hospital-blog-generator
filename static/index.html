@@ -59,7 +59,7 @@
   .chk { display:flex; gap:6px; align-items:center; font-weight:400; font-size:13px; margin:6px 0; }
   .chk input[type=checkbox] { width:auto; }
   .chk input[type=number] { width:80px; padding:4px 6px; }
-  .score { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-bottom:12px; }
+  .score { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:8px; margin-bottom:12px; }
   @media (max-width:600px) { .score { grid-template-columns:repeat(2,1fr); } }
   .score div { border:1px solid var(--line); border-radius:8px; padding:8px 10px; font-size:12px; color:var(--muted); }
   .score b { display:block; font-size:18px; color:#03a04a; }
@@ -154,6 +154,7 @@ async function loadBench(keyword) {
     <div class="chk"><input type="checkbox" id="tChars" checked><label for="tChars">분량</label><input type="number" id="vChars" value="${t.chars}" step="100" min="1000" max="8000">자</div>
     <div class="chk"><input type="checkbox" id="tKw" checked><label for="tKw">키워드 "${esc(bench.keyword)}"</label><input type="number" id="vKw" value="${t.keyword_count}" min="1" max="60">회</div>
     <div class="chk"><input type="checkbox" id="tImg" checked><label for="tImg">사진 자리 표시</label><input type="number" id="vImg" value="${t.images}" min="1" max="30">곳</div>
+    <div class="chk"><input type="checkbox" id="tQuote" checked><label for="tQuote">인용구 상자</label><input type="number" id="vQuote" value="${t.quotes}" min="1" max="20">개</div>
     <div class="chk"><input type="checkbox" id="tTitle" checked><label for="tTitle">제목: 키워드로 시작 + 질문형</label></div>
     <label>추천 제목 <small>고르면 그대로 사용</small></label>
     <label class="topic"><input type="radio" name="title" value="" checked><div><b>고르지 않음</b><small>형식만 맞춰 새로 짓기</small></div></label>
@@ -169,6 +170,7 @@ function chosenTargets() {
     chars: on("tChars") ? +$("vChars").value : null,
     keyword_count: on("tKw") ? +$("vKw").value : null,
     images: on("tImg") ? +$("vImg").value : null,
+    quotes: on("tQuote") ? +$("vQuote").value : null,
     title: on("tTitle") && title !== "" ? bench.titles[+title] : "",
     title_pattern: on("tTitle"),
   };
@@ -193,6 +195,10 @@ function renderScore(t, keyword) {
   if (t.images) {
     const n = $("preview").querySelectorAll(".slot").length;
     cells.push(["사진 자리", `${n}곳`, `목표 ${t.images}곳`, n < t.images * .9]);
+  }
+  if (t.quotes) {
+    const n = $("preview").querySelectorAll("blockquote").length;
+    cells.push(["인용구", `${n}개`, `목표 ${t.quotes}개`, n < t.quotes * .7]);
   }
   if (t.title_pattern) {
     const ok = h1.startsWith(kw) && h1.includes("?");

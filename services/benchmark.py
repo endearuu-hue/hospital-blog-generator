@@ -72,6 +72,7 @@ def targets(posts: list[dict]) -> dict:
         "chars": int(chars),
         "keyword_count": max(3, round(chars * density)),
         "images": round(statistics.mean(p["images"] for p in posts)),
+        "quotes": max(1, round(statistics.mean(p["quotes"] for p in top))),
     }
 
 
@@ -152,6 +153,6 @@ if __name__ == "__main__":
     assert p["keyword_count"] == 2 and p["keyword_in_title"], p  # 띄어쓰기 무시, 공감 영역 제외
     assert parse_search("x https://blog.naver.com/a/1 y https://blog.naver.com/a/1 https://blog.naver.com/b_2/3") \
         == [("a", "1"), ("b_2", "3")]
-    t = targets([{"chars": 3000, "keyword_count": 15, "images": 10}] * 3 + [{"chars": 1000, "keyword_count": 1, "images": 0}])
-    assert t == {"chars": 3000, "keyword_count": 15, "images": 8}, t
+    t = targets([{"chars": 3000, "keyword_count": 15, "images": 10, "quotes": 6}] * 3 + [{"chars": 1000, "keyword_count": 1, "images": 0, "quotes": 0}])
+    assert t == {"chars": 3000, "keyword_count": 15, "images": 8, "quotes": 6}, t
     print("ok")

@@ -126,6 +126,9 @@ def benchmark_block(keyword: str, t: dict | None) -> str:
     if t.get("images"):
         rules.append(f"- 사진이 들어갈 자리 {t['images']}곳을 흐름에 맞게 표시합니다. 형식: "
                      f"<p>📷 사진 자리 1: 넣을 사진 설명</p> (번호를 1부터 매김. 이 표시는 분량에 넣지 않음. 치료 전후·환자 사진은 제안 금지)")
+    if t.get("quotes"):
+        rules.append(f"- <blockquote> 인용구 상자를 {t['quotes']}개 씁니다. 진료실에서 자주 듣는 한마디, 꼭 기억할 한 문장, "
+                     "소제목 아래 핵심 요약처럼 눈에 띄게 할 대목에 씁니다. 한 상자는 1~2문장.")
     if t.get("title"):
         rules.append(f"- 제목(<h1>)은 정확히 \"{t['title']}\"로 씁니다.")
     elif t.get("title_pattern"):

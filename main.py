@@ -26,6 +26,7 @@ class Targets(BaseModel):
     chars: int | None = Field(None, ge=1000, le=8000)
     keyword_count: int | None = Field(None, ge=1, le=60)
     images: int | None = Field(None, ge=1, le=30)
+    quotes: int | None = Field(None, ge=1, le=20)
     title: str = Field("", max_length=80)  # 추천 제목 중 고른 것
     title_pattern: bool = False
 
