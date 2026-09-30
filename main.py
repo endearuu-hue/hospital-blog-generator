@@ -56,7 +56,8 @@ class CompareRequest(BaseModel):
 
 @app.get("/")
 def index():
-    return FileResponse(STATIC / "index.html")
+    # 브라우저가 옛 화면을 캐시해 새 기능이 안 보이는 일 방지
+    return FileResponse(STATIC / "index.html", headers={"Cache-Control": "no-store"})
 
 
 @app.get("/health")
