@@ -48,6 +48,23 @@
   .warn { background:#fff7e6; border:1px solid #ffd591; border-radius:8px; padding:8px 12px; font-size:13px; margin-bottom:12px; }
   .toast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%); background:#1d2330; color:#fff; padding:8px 16px; border-radius:8px; opacity:0; transition:opacity .2s; }
   .toast.show { opacity:1; }
+  .bench th { font-size:12px; color:var(--muted); text-align:left; padding:4px 0; border-bottom:1px solid var(--line); font-weight:400; }
+  .bench td { text-align:right; color:var(--text); }
+  .bench td:first-child { text-align:left; padding-right:6px; color:var(--muted); }
+  .bench td:nth-child(2) { text-align:left; padding-right:6px; }
+  .bench th { white-space:nowrap; padding-left:4px; }
+  .bench a { color:var(--text); display:-webkit-box; -webkit-line-clamp:1; -webkit-box-orient:vertical; overflow:hidden; }
+  ul.tight { margin:6px 0; padding-left:18px; font-size:13px; }
+  .pill { display:inline-block; font-size:12px; background:#fff1f0; border:1px solid #ffccc7; border-radius:99px; padding:2px 8px; margin:2px 4px 2px 0; }
+  .chk { display:flex; gap:6px; align-items:center; font-weight:400; font-size:13px; margin:6px 0; }
+  .chk input[type=checkbox] { width:auto; }
+  .chk input[type=number] { width:80px; padding:4px 6px; }
+  .score { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-bottom:12px; }
+  @media (max-width:600px) { .score { grid-template-columns:repeat(2,1fr); } }
+  .score div { border:1px solid var(--line); border-radius:8px; padding:8px 10px; font-size:12px; color:var(--muted); }
+  .score b { display:block; font-size:18px; color:#03a04a; }
+  .score .low b { color:#d46b08; }
+  #preview .slot { border:2px dashed #bfe8cf; background:#f3faf6; color:#03a04a; padding:12px; border-radius:8px; }
 </style>
 </head>
 <body>
@@ -62,6 +79,10 @@
       <input id="hospital" maxlength="50" placeholder="예: ○○정형외과">
       <button class="primary" id="find">① 세부 주제 찾기</button>
     </form>
+    <section class="card" id="benchCard" hidden>
+      <h2 class="sec">상위글 분석 <small>네이버 블로그 상위 5개</small></h2>
+      <div id="bench"></div>
+    </section>
     <section class="card" id="topicCard" hidden>
       <h2 class="sec">세부 주제 추천 <small id="topicCost"></small></h2>
       <div id="topics"></div>
@@ -78,6 +99,7 @@
       <button class="ghost" id="copyHtml" disabled>HTML 복사</button>
       <span class="count" id="count"></span>
     </div>
+    <div id="score"></div>
     <div id="warnings"></div>
     <article id="preview"><p class="empty">키워드를 입력하고 글을 생성하세요.</p></article>
   </section>
@@ -96,6 +118,75 @@ function toast(msg) {
 }
 
 let suggestion = null;  // /api/subtopics 결과
+let bench = null;       // /api/benchmark 결과
+
+// 상위글 분석: 세부 주제 찾기와 동시에 실행. 실패해도 글 생성은 그대로 가능
+async function loadBench(keyword) {
+  bench = null;
+  $("benchCard").hidden = false;
+  $("bench").innerHTML = '<p class="cands">상위 글 읽고 분석하는 중… (30초 안팎)</p>';
+  try {
+    bench = await post("/api/benchmark", {keyword});
+  } catch (err) {
+    $("bench").innerHTML = `<p class="cands">분석 실패: ${esc(err.message)}<br>기준 없이 글 생성은 가능합니다.</p>`;
+    return;
+  }
+  const t = bench.targets;
+  const rows = bench.posts.map(p => `<tr><td>${p.rank}</td><td><a href="${esc(p.url)}" target="_blank" rel="noopener" title="${esc(p.title)}">${esc(p.title)}</a></td>
+    <td>${p.chars.toLocaleString()}</td><td>${p.images}</td><td>${p.keyword_count}</td></tr>`).join("");
+  const titles = bench.titles.map((x, i) => `<label class="topic"><input type="radio" name="title" value="${i}">
+    <div><b>${esc(x)}</b></div></label>`).join("");
+  $("bench").innerHTML = `
+    <table class="bench"><tr><th>#</th><th>제목</th><th>글자</th><th>사진</th><th>키워드</th></tr>${rows}</table>
+    <label>왜 상위일까</label><ul class="tight">${bench.reasons.map(r => `<li>${esc(r)}</li>`).join("")}</ul>
+    <label>이 기준으로 씁니다 <small>숫자는 고칠 수 있음</small></label>
+    <div class="chk"><input type="checkbox" id="tChars" checked><label for="tChars">분량</label><input type="number" id="vChars" value="${t.chars}" step="100" min="1000" max="8000">자</div>
+    <div class="chk"><input type="checkbox" id="tKw" checked><label for="tKw">키워드 "${esc(bench.keyword)}"</label><input type="number" id="vKw" value="${t.keyword_count}" min="1" max="60">회</div>
+    <div class="chk"><input type="checkbox" id="tImg" checked><label for="tImg">사진 자리 표시</label><input type="number" id="vImg" value="${t.images}" min="1" max="30">곳</div>
+    <div class="chk"><input type="checkbox" id="tTitle" checked><label for="tTitle">제목: 키워드로 시작 + 질문형</label></div>
+    <label>추천 제목 <small>고르면 그대로 사용</small></label>
+    <label class="topic"><input type="radio" name="title" value="" checked><div><b>고르지 않음</b><small>형식만 맞춰 새로 짓기</small></div></label>
+    ${titles}
+    ${bench.avoid.length ? `<label>따라 하지 않음 <small>의료광고법</small></label>${bench.avoid.map(a => `<span class="pill">${esc(a)}</span>`).join("")}` : ""}`;
+}
+
+function chosenTargets() {
+  if (!bench) return null;
+  const on = id => $(id).checked;
+  const title = document.querySelector("input[name=title]:checked").value;
+  return {
+    chars: on("tChars") ? +$("vChars").value : null,
+    keyword_count: on("tKw") ? +$("vKw").value : null,
+    images: on("tImg") ? +$("vImg").value : null,
+    title: on("tTitle") && title !== "" ? bench.titles[+title] : "",
+    title_pattern: on("tTitle"),
+  };
+}
+
+// 완성 글이 기준을 지켰는지. 90% 미만(키워드는 과다도) 주황
+function renderScore(t, keyword) {
+  if (!t) return $("score").innerHTML = "";
+  // 사진 자리 표시는 발행 때 사진으로 바뀌므로 글자·키워드 수에서 뺌
+  const text = [...$("preview").children].filter(e => !e.classList.contains("slot")).map(e => e.innerText).join("\n"), flat = text.replace(/\s/g, "");
+  const kw = keyword.replace(/\s/g, "");
+  const h1 = ($("preview").querySelector("h1")?.innerText || "").replace(/\s/g, "");
+  const cells = [];
+  if (t.chars) cells.push(["글자 수", text.length.toLocaleString(), `목표 ${t.chars.toLocaleString()}`, text.length < t.chars * .9]);
+  if (t.keyword_count) {
+    const n = flat.split(kw).length - 1;
+    cells.push(["키워드", `${n}회`, `목표 ${t.keyword_count}회`, n < t.keyword_count * .7 || n > t.keyword_count * 1.5]);
+  }
+  if (t.images) {
+    const n = $("preview").querySelectorAll(".slot").length;
+    cells.push(["사진 자리", `${n}곳`, `목표 ${t.images}곳`, n < t.images * .9]);
+  }
+  if (t.title_pattern) {
+    const ok = h1.startsWith(kw) && h1.includes("?");
+    cells.push(["제목 형식", ok ? "맞음" : "다름", "키워드 시작 + 질문형", !ok]);
+  }
+  $("score").innerHTML = `<p class="cands" style="margin:0 0 6px">완성 글 vs 상위글 기준</p><div class="score">` +
+    cells.map(([k, v, goal, low]) => `<div class="${low ? "low" : ""}">${k}<b>${v}</b>${goal}</div>`).join("") + "</div>";
+}
 
 async function post(url, body) {
   const res = await fetch(url, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
@@ -109,6 +200,7 @@ $("form").onsubmit = async e => {
   e.preventDefault();
   $("find").disabled = true;
   $("find").textContent = "주제 찾는 중…";
+  loadBench($("keyword").value.trim());
   try {
     suggestion = await post("/api/subtopics", {keyword: $("keyword").value.trim()});
     const opts = suggestion.subtopics.map((t, i) => `
@@ -134,7 +226,8 @@ $("form").onsubmit = async e => {
 // ② 선택한 주제로 글 생성
 $("go").onclick = async () => {
   const pick = document.querySelector("input[name=topic]:checked").value;
-  const body = {keyword: $("keyword").value.trim(), hospital: $("hospital").value.trim(), pubmed_query: suggestion.disease_en};
+  const targets = chosenTargets();
+  const body = {keyword: $("keyword").value.trim(), hospital: $("hospital").value.trim(), pubmed_query: suggestion.disease_en, targets};
   if (pick === "custom") {
     body.subtopic = $("customSub").value.trim();
     if (!body.subtopic) return toast("직접 입력할 주제를 적어 주세요");
@@ -146,7 +239,7 @@ $("go").onclick = async () => {
   $("go").disabled = true;
   $("go").textContent = "생성 중… (1~2분)";
   $("preview").innerHTML = '<p class="empty">키워드·논문 수집 후 글을 쓰는 중입니다…</p>';
-  $("warnings").innerHTML = "";
+  $("warnings").innerHTML = $("score").innerHTML = "";
   try {
     const data = await post("/api/generate", body);
 
@@ -158,6 +251,8 @@ $("go").onclick = async () => {
       else [...el.attributes].forEach(a => el.removeAttribute(a.name));
     });
     $("preview").innerHTML = doc.body.innerHTML;
+    $("preview").querySelectorAll("p").forEach(p => { if (p.innerText.startsWith("📷")) p.className = "slot"; });
+    renderScore(targets, body.keyword);
     const via = data.engine === "claude-code"
       ? `Claude Code 구독 사용${data.api_equivalent_usd ? ` (API였다면 약 $${data.api_equivalent_usd.toFixed(2)})` : ""}`
       : "Anthropic API 사용";

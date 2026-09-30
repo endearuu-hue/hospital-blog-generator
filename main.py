@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 load_dotenv()
 
-from services import generator, keyword_pipeline, naver_keyword, pubmed  # noqa: E402  (.env 로드 후 import)
+from services import benchmark, generator, keyword_pipeline, naver_keyword, pubmed  # noqa: E402  (.env 로드 후 import)
 
 STATIC = Path(__file__).parent / "static"
 app = FastAPI(title="Hospital Blog Generator")
@@ -21,12 +21,22 @@ class SubtopicRequest(BaseModel):
     keyword: str = Field(min_length=1, max_length=50)
 
 
+class Targets(BaseModel):
+    """상위글 분석에서 원장이 체크한 기준. None이면 그 항목은 적용 안 함."""
+    chars: int | None = Field(None, ge=1000, le=8000)
+    keyword_count: int | None = Field(None, ge=1, le=60)
+    images: int | None = Field(None, ge=1, le=30)
+    title: str = Field("", max_length=80)  # 추천 제목 중 고른 것
+    title_pattern: bool = False
+
+
 class GenerateRequest(BaseModel):
     keyword: str = Field(min_length=1, max_length=50)
     pubmed_query: str = Field(min_length=1, max_length=300)  # 영문 PubMed 검색식 (세부 주제 추천에서 받음)
     subtopic: str = Field("", max_length=30)  # 세부 주제. 비우면 키워드 전반
     intent: str = Field("", max_length=200)
     hospital: str = Field("", max_length=50)
+    targets: Targets | None = None
 
 
 @app.get("/")
@@ -45,6 +55,14 @@ async def subtopics(req: SubtopicRequest):
         return await keyword_pipeline.suggest_subtopics(req.keyword.strip())
     except Exception as e:
         raise HTTPException(502, f"세부 주제 추천 실패: {e}")
+
+
+@app.post("/api/benchmark")
+async def bench(req: SubtopicRequest):
+    try:
+        return await benchmark.analyze(req.keyword.strip())
+    except Exception as e:
+        raise HTTPException(502, f"상위글 분석 실패: {e}")
 
 
 @app.post("/api/generate")
@@ -75,7 +93,8 @@ async def generate(req: GenerateRequest):
     try:
         # 동기 호출이라 스레드로 넘겨 이벤트 루프를 막지 않음
         post = await asyncio.to_thread(generator.generate_post, req.keyword, related, papers,
-                                       req.hospital, req.subtopic, req.intent)
+                                       req.hospital, req.subtopic, req.intent,
+                                       req.targets.model_dump() if req.targets else None)
     except Exception as e:
         raise HTTPException(502, f"글 생성 실패: {e}")
 

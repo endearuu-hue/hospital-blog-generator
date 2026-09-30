@@ -1,9 +1,6 @@
 """네이버 자동완성 → Claude 1회 호출로 세부 주제 3개 + PubMed 영문 검색어 추천."""
 import asyncio
-import json
-import os
 
-import anthropic
 import httpx
 
 from services import generator, naver_keyword
@@ -70,18 +67,6 @@ async def get_naver_autocomplete(keyword: str, limit: int = 10) -> list[str]:
     return seen[:limit]
 
 
-def _ask_claude(prompt: str) -> tuple[dict, float | None]:
-    if os.getenv("ANTHROPIC_API_KEY"):
-        msg = anthropic.Anthropic().messages.create(
-            model=API_MODEL, max_tokens=2000, system=SYSTEM,
-            messages=[{"role": "user", "content": prompt}],
-            output_config={"format": {"type": "json_schema", "schema": SCHEMA}},
-        )
-        return json.loads(next(b.text for b in msg.content if b.type == "text")), None
-    out = generator.run_claude_code(prompt, SYSTEM, model=CLI_MODEL, schema=SCHEMA)
-    return out["structured_output"], out.get("total_cost_usd")
-
-
 async def suggest_subtopics(keyword: str) -> dict:
     candidates = await get_naver_autocomplete(keyword)
     volumes: dict[str, int] = {}
@@ -97,6 +82,6 @@ async def suggest_subtopics(keyword: str) -> dict:
     lines += [f"- {k} (월 검색량 {v:,})" for k, v in volumes.items() if k not in {c.replace(" ", "") for c in candidates}]
     prompt = f"메인 키워드: {keyword}\n\n<candidates>\n" + ("\n".join(lines) or "(후보 없음)") + "\n</candidates>"
 
-    data, cost = await asyncio.to_thread(_ask_claude, prompt)
+    data, cost = await asyncio.to_thread(generator.ask_json, prompt, SYSTEM, SCHEMA, API_MODEL, CLI_MODEL)
     return {"candidates": candidates, "disease_en": data["disease_en"],
             "subtopics": data["subtopics"][:3], "api_equivalent_usd": cost}

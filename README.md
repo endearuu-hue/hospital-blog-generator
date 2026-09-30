@@ -9,7 +9,9 @@
  → Claude가 세부 주제 3개 추천 + 주제별 PubMed 영문 검색식 생성
  → 원장이 주제 하나 선택
  → PubMed 최근 3년 리뷰·임상연구 3편 검색, 초록 요약
- → Claude가 칼럼체 블로그 글 작성 (H1/H2/H3 HTML)
+ → (동시에) 네이버 블로그 상위 5개 글 분석 → 분량·키워드 횟수·사진 수 기준, 추천 제목
+ → Claude가 칼럼체 블로그 글 작성 (H1/H2/H3 HTML, 사진 자리 표시)
+ → 완성 글 vs 상위글 기준 점수표
  → "블로그용 복사" 버튼으로 네이버 스마트에디터에 서식째 붙여넣기
 ```
 
@@ -44,6 +46,7 @@ main.py                     FastAPI 서버 (/api/subtopics, /api/generate)
 services/
   keyword_pipeline.py       네이버 자동완성 → 세부 주제 3개 + PubMed 검색식 추천
   naver_keyword.py          네이버 검색광고 API (연관 키워드, 월 검색량)
+  benchmark.py              네이버 블로그 상위 5개 글 분석 → 분량·키워드·사진 기준 + 추천 제목
   pubmed.py                 PubMed 논문 검색 + 초록 요약
   generator.py              칼럼 작성 프롬프트, Claude 호출 (API 또는 Claude Code)
 static/index.html           대시보드 화면

@@ -48,7 +48,7 @@ SYSTEM_PROMPT = """당신은 진료실에서 매일 환자를 만나는 병원 �
 [네이버 블로그 SEO]
 - 메인 키워드를 제목, 첫 문단, 첫 번째 <h2> 근처, 마지막 문단에 자연스럽게 넣습니다.
 - 연관 키워드는 본문에 억지스럽지 않게 녹입니다. 같은 단어를 반복해 채우지 않습니다.
-- 본문 분량은 공백 포함 2,000~3,000자. 모바일 가독성을 위해 한 문단은 1~4문장.
+- 본문 분량은 공백 포함 2,000~3,000자(<benchmark>가 있으면 그 분량을 따릅니다). 모바일 가독성을 위해 한 문단은 1~4문장.
 
 [형식] HTML 조각만 출력합니다(<html>, <body>, 마크다운, 코드펜스 금지).
 <h1>제목</h1>으로 시작합니다. 제목도 칼럼처럼 씁니다(예: "허리디스크, MRI 사진보다 중요한 것").
@@ -65,7 +65,7 @@ SYSTEM_PROMPT = """당신은 진료실에서 매일 환자를 만나는 병원 �
 
 
 def build_prompt(keyword: str, related: list[dict], papers: list[dict], hospital: str = "",
-                 subtopic: str = "", intent: str = "") -> str:
+                 subtopic: str = "", intent: str = "", targets: dict | None = None) -> str:
     kw_lines = "\n".join(f"- {k['keyword']} (월 검색량 {k['total']:,})" for k in related) or "- (없음)"
     paper_lines = "\n\n".join(
         f"[{i}] {p['title']} ({p['journal']}, {p['year']})\n요약: {p['summary']}"
@@ -84,7 +84,7 @@ def build_prompt(keyword: str, related: list[dict], papers: list[dict], hospital
 """ if subtopic else ""
     return f"""메인 키워드: {target}
 병원명: {hospital or '(언급하지 않음)'}
-{focus}
+{focus}{benchmark_block(keyword, targets)}
 <related_keywords>
 {kw_lines}
 </related_keywords>
@@ -94,6 +94,30 @@ def build_prompt(keyword: str, related: list[dict], papers: list[dict], hospital
 </papers>
 
 위 자료로 네이버 블로그 글을 작성해 주세요."""
+
+
+def benchmark_block(keyword: str, t: dict | None) -> str:
+    """네이버 상위 글 기준. 말투·의료광고 규칙보다 우선하지 않음."""
+    if not t:
+        return ""
+    rules = []
+    if t.get("chars"):
+        # "약 N자"만 주면 짧게 쓰는 경향이 있어 최소 분량을 못박음
+        rules.append(f"- 분량: 공백 포함 최소 {round(t['chars'] * 0.95):,}자, 목표 {t['chars']:,}자. "
+                     "짧으면 상위 글보다 불리합니다. 분량이 모자라면 오해 바로잡기나 생활 속 장면을 한 대목 더 씁니다.")
+    if t.get("keyword_count"):
+        rules.append(f"- 메인 키워드 \"{keyword}\"을(를) 제목 포함 본문 전체에 약 {t['keyword_count']}회 자연스럽게 씁니다.")
+    if t.get("images"):
+        rules.append(f"- 사진이 들어갈 자리 {t['images']}곳을 흐름에 맞게 표시합니다. 형식: "
+                     f"<p>📷 사진 자리 1: 넣을 사진 설명</p> (번호를 1부터 매김. 이 표시는 분량에 넣지 않음. 치료 전후·환자 사진은 제안 금지)")
+    if t.get("title"):
+        rules.append(f"- 제목(<h1>)은 정확히 \"{t['title']}\"로 씁니다.")
+    elif t.get("title_pattern"):
+        rules.append(f"- 제목은 \"{keyword}\"로 시작하고, 구체적인 증상·상황 + 질문형으로 끝냅니다.")
+    if not rules:
+        return ""
+    return ("\n<benchmark>\n네이버 블로그 검색 상위 글에 맞춘 기준입니다. 목소리·의료광고 규칙은 그대로 지킵니다.\n"
+            + "\n".join(rules) + "\n</benchmark>\n")
 
 
 def _via_api(prompt: str) -> tuple[str, float | None]:
@@ -143,9 +167,23 @@ def run_claude_code(prompt: str, system: str, model: str | None = None, schema: 
     return out
 
 
+def ask_json(prompt: str, system: str, schema: dict, api_model: str = "claude-haiku-4-5",
+             cli_model: str = "haiku") -> tuple[dict, float | None]:
+    """짧은 JSON 응답용 호출. API 키가 있으면 API, 없으면 Claude Code 구독."""
+    if os.getenv("ANTHROPIC_API_KEY"):
+        msg = anthropic.Anthropic().messages.create(
+            model=api_model, max_tokens=2000, system=system,
+            messages=[{"role": "user", "content": prompt}],
+            output_config={"format": {"type": "json_schema", "schema": schema}},
+        )
+        return json.loads(next(b.text for b in msg.content if b.type == "text")), None
+    out = run_claude_code(prompt, system, model=cli_model, schema=schema)
+    return out["structured_output"], out.get("total_cost_usd")
+
+
 def generate_post(keyword: str, related: list[dict], papers: list[dict], hospital: str = "",
-                  subtopic: str = "", intent: str = "") -> dict:
-    prompt = build_prompt(keyword, related, papers, hospital, subtopic, intent)
+                  subtopic: str = "", intent: str = "", targets: dict | None = None) -> dict:
+    prompt = build_prompt(keyword, related, papers, hospital, subtopic, intent, targets)
     if os.getenv("ANTHROPIC_API_KEY"):
         engine, (text, cost) = "api", _via_api(prompt)
     else:
