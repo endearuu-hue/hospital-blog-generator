@@ -74,6 +74,25 @@
   .cols .chk { align-items:flex-start; }
   .cols .chk label { margin:0; font-weight:400; }
   .have { color:#03a04a; font-size:13px; } .miss { color:#d46b08; font-size:13px; }
+  #side { position:fixed; inset:0; background:var(--bg); z-index:10; display:flex; flex-direction:column; padding:12px 20px; gap:10px; }
+  #side[hidden] { display:none; }
+  .side-head { display:flex; justify-content:space-between; align-items:center; }
+  #insights { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; font-size:13px; max-height:34vh; overflow:auto; }
+  #insights > div { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:10px 12px; }
+  #insights p { margin:6px 0; } #insights .primary { margin-top:8px; padding:8px; }
+  .split { display:grid; grid-template-columns:1fr 1fr; gap:12px; flex:1; min-height:0; }
+  @media (max-width:860px) { #insights, .split { grid-template-columns:1fr; } #side { overflow:auto; } .split { flex:none; } }
+  .pane { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; overflow:auto; }
+  .pane h1 { font-size:20px; } .pane h2 { font-size:17px; margin-top:22px; } .pane p { font-size:14px; }
+  .pane blockquote { margin:10px 0; padding:8px 14px; border-left:3px solid var(--accent); background:#f3faf6; font-size:14px; }
+  .pane .slot { border:2px dashed #cfd4da; color:var(--muted); font-size:12px; padding:8px; text-align:center; border-radius:8px; }
+  .pane .tbl { font-size:12px; color:var(--muted); background:#f6f7f9; padding:8px; border-radius:6px; }
+  .hdr { font-size:13px; color:var(--muted); display:flex; justify-content:space-between; gap:8px; margin:0 0 8px; position:sticky; top:-16px; background:var(--card); padding:6px 0; }
+  .side-tabs { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px; align-items:center; }
+  .side-tabs button { background:#eef0f3; font-size:13px; padding:6px 10px; }
+  .side-tabs button.on { background:var(--accent); color:#fff; }
+  .ghost-link { margin-left:auto; font-size:13px; color:var(--muted); }
+  mark { background:#fff3b0; }
   #preview .slot { border:2px dashed #bfe8cf; background:#f3faf6; color:#03a04a; padding:12px; border-radius:8px; }
 </style>
 </head>
@@ -115,6 +134,14 @@
     <article id="preview"><p class="empty">키워드를 입력하고 글을 생성하세요.</p></article>
   </section>
 </main>
+<div id="side" hidden>
+  <div class="side-head"><b>내 글 vs 상위 노출 글</b><button class="ghost" onclick="closeSide()">닫기 ✕</button></div>
+  <div id="insights"></div>
+  <div class="split">
+    <section class="pane" id="sideMine"></section>
+    <section class="pane"><div class="side-tabs" id="sideTabs"></div><div id="sideTop"></div></section>
+  </div>
+</div>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -177,6 +204,62 @@ function chosenTargets() {
 }
 
 // 완성 글이 기준을 지켰는지. 90% 미만(키워드는 과다도) 주황
+let lastCells = [];     // 점수표 칸 [이름, 값, 목표, 모자람]
+let lastCompare = null; // /api/compare 결과
+
+// 키워드를 노란색으로. 이미 이스케이프된 HTML의 태그 밖 텍스트에만 적용
+function markKw(safeHtml, keyword) {
+  const kw = esc(keyword);
+  return safeHtml.replace(/(^|>)([^<]*)/g, (_, a, t) => a + t.split(kw).join(`<mark>${kw}</mark>`));
+}
+
+// 나란히 보기: 위에 분석 4칸, 아래 왼쪽 내 글 / 오른쪽 상위 글
+function openSide(keyword, me) {
+  $("side").hidden = false;
+  document.body.style.overflow = "hidden";
+  $("sideMine").innerHTML = `<p class="hdr"><b>내 글</b><span>${me.chars.toLocaleString()}자 · 사진 ${me.images} · 인용구 ${me.quotes} · 키워드 ${me.keyword_count}</span></p>`
+    + markKw($("preview").innerHTML, keyword);
+  $("sideTabs").innerHTML = bench.posts.map((p, i) => `<button data-i="${i}">${p.rank}위</button>`).join("")
+    + `<a class="ghost-link" id="sideLink" target="_blank" rel="noopener">네이버에서 열기 ↗</a>`;
+  $("sideTabs").querySelectorAll("button").forEach(b => b.onclick = () => showTop(+b.dataset.i, keyword));
+  showTop(0, keyword);
+}
+
+function showTop(i, keyword) {
+  const p = bench.posts[i];
+  $("sideTabs").querySelectorAll("button").forEach(b => b.classList.toggle("on", +b.dataset.i === i));
+  $("sideLink").href = p.url;
+  const block = b => ({
+    h: `<h2>${markKw(esc(b.x), keyword)}</h2>`,
+    p: `<p>${markKw(esc(b.x), keyword)}</p>`,
+    quote: `<blockquote>${markKw(esc(b.x), keyword)}</blockquote>`,
+    img: '<p class="slot">📷 사진</p>',
+    table: `<p class="tbl">표 · ${esc(b.x)}</p>`,
+  }[b.t] || "");
+  $("sideTop").innerHTML = `<p class="hdr"><b>${p.rank}위 글</b><span>${p.chars.toLocaleString()}자 · 사진 ${p.images} · 인용구 ${p.quotes} · 키워드 ${p.keyword_count}</span></p>
+    <h1>${markKw(esc(p.title), keyword)}</h1>${(p.blocks || []).map(block).join("") || '<p class="cands">본문을 읽지 못했습니다. 네이버에서 열어 보세요.</p>'}`;
+  $("sideTop").scrollTop = 0;
+  sideRank = i;
+  renderInsights();
+}
+
+let sideRank = 0;
+function renderInsights() {
+  const li = xs => xs.length ? `<ul class="tight">${xs.map(x => `<li>${x}</li>`).join("")}</ul>` : '<p class="cands">없음</p>';
+  const c = lastCompare, wait = '<p class="cands">내용 비교 중… 잠시 후 채워집니다</p>';
+  const ok = lastCells.filter(x => !x[3]).map(([k, v, g]) => `${esc(k)} ${esc(v)} <small>(${esc(g)})</small>`);
+  const bad = lastCells.filter(x => x[3]).map(([k, v, g]) => `<b>${esc(k)}</b> ${esc(v)} → ${esc(g)}`);
+  $("insights").innerHTML = `
+    <div><b>상위 노출 글 공통점</b>${li(bench.reasons.map(esc))}</div>
+    <div><b>${bench.posts[sideRank].rank}위 글은 어떤 글?</b><p>${esc(bench.notes?.[sideRank] || "분석 없음")}</p></div>
+    <div><b class="have">내 글에 반영된 것</b>${li(ok)}${c ? li([...c.covered.map(x => "다룬 주제: " + esc(x)), ...c.strengths.map(x => "강점: " + esc(x))]) : wait}</div>
+    <div><b class="miss">보완하면 좋은 것</b>${bad.length ? li(bad) : ""}${c ? li(c.missing.map(m => `<b>${esc(m.topic)}</b> · 상위 ${m.posts}개 글 <small>${esc(m.note)}</small>`)) : wait}
+      ${c?.missing.length ? '<button class="primary" id="sideSupplement">보충해서 다시 쓰기</button>' : ""}</div>`;
+  if (c?.missing.length) $("sideSupplement").onclick = () => { closeSide(); $("supplement").click(); };
+}
+
+function closeSide() { $("side").hidden = true; document.body.style.overflow = ""; }
+
 // 사진 자리 표시는 발행 때 사진으로 바뀌므로 글자·키워드 수에서 뺌
 const bodyText = () => [...$("preview").children].filter(e => !e.classList.contains("slot")).map(e => e.innerText).join("\n");
 const countKw = (text, keyword) => text.replace(/\s/g, "").split(keyword.replace(/\s/g, "")).length - 1;
@@ -204,6 +287,7 @@ function renderScore(t, keyword) {
     const ok = h1.startsWith(kw) && h1.includes("?");
     cells.push(["제목 형식", ok ? "맞음" : "다름", "키워드 시작 + 질문형", !ok]);
   }
+  lastCells = cells;
   $("score").innerHTML = `<p class="cands" style="margin:0 0 6px">완성 글 vs 상위글 기준</p><div class="score">` +
     cells.map(([k, v, goal, low]) => `<div class="${low ? "low" : ""}">${k}<b>${v}</b>${goal}</div>`).join("") + "</div>";
 }
@@ -227,13 +311,18 @@ async function renderCompare(keyword) {
     <tr class="avg"><td></td><td>1~3위 평균</td><td>${avg("chars").toLocaleString()}</td><td>${avg("images")}</td><td>${avg("quotes")}</td><td>${avg("keyword_count")}</td></tr>
     <tr class="me"><td>👉</td><td><span class="tag">내 글</span>${esc(me.title)}</td><td${low("chars")}>${me.chars.toLocaleString()}</td>
       <td${low("images")}>${me.images}</td><td${low("quotes")}>${me.quotes}</td><td${low("keyword_count")}>${me.keyword_count}</td></tr></table>
+    <button class="primary" id="openSide" style="max-width:320px">상위 글과 나란히 보기</button>
     <div id="content"><p class="cands">상위 글과 내용 비교하는 중… (30초 안팎)</p></div></div>`;
+  lastCompare = null;
+  $("openSide").onclick = () => openSide(keyword, me);
   let c;
   try {
     c = await post("/api/compare", {keyword, my_text: text, posts: bench.posts.map(({rank, title, text}) => ({rank, title, text}))});
   } catch (err) {
     return $("content").innerHTML = `<p class="cands">내용 비교 실패: ${esc(err.message)}</p>`;
   }
+  lastCompare = c;
+  if (!$("side").hidden) renderInsights();
   const li = xs => xs.map(x => `<li>${esc(x)}</li>`).join("");
   $("content").innerHTML = `<div class="cols">
       <div><b class="have">상위 글도, 내 글도 다룬 것</b><ul class="tight">${li(c.covered)}</ul></div>

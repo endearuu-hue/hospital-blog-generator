@@ -19,8 +19,9 @@ SCHEMA = {
         "reasons": {"type": "array", "items": {"type": "string"}},
         "titles": {"type": "array", "items": {"type": "string"}},
         "avoid": {"type": "array", "items": {"type": "string"}},
+        "notes": {"type": "array", "items": {"type": "string"}},
     },
-    "required": ["reasons", "titles", "avoid"],
+    "required": ["reasons", "titles", "avoid", "notes"],
     "additionalProperties": False,
 }
 
@@ -32,7 +33,9 @@ SYSTEM = """당신은 네이버 블로그 SEO와 의료광고법을 아는 병�
 - titles: 같은 패턴으로 병원 원장이 쓸 칼럼 제목 3개. 메인 키워드로 시작하고 구체적인 증상·상황 + 질문형.
   "완치", "100%", "최고", "전문병원" 같은 의료광고 금지 표현은 쓰지 않습니다.
 - avoid: 상위 글에 보이지만 병원 블로그가 따라 하면 의료법상 문제가 되는 요소(전문병원 명칭, 치료 체험담,
-  전후 사진, 과장 표현 등). 없으면 빈 배열. 한 줄씩 짧게."""
+  전후 사진, 과장 표현 등). 없으면 빈 배열. 한 줄씩 짧게.
+- notes: 글마다 하나씩, 순위 순서대로. 그 글이 어떤 글인지 한두 문장(누가 쓴 어떤 형식의 글인지,
+  도입·구성의 특징, 눈에 띄는 강점). 예: "약사 블로그의 제품 비교형. 요약표로 시작하고 사진 28장으로 제품을 보여 줌.\""""
 
 
 def parse_search(page: str) -> list[tuple[str, str]]:
@@ -60,7 +63,39 @@ def parse_post(page: str, keyword: str) -> dict:
         "keyword_in_title": kw in title.replace(" ", ""),
         "intro": text[:200],
         "text": text[:3000],  # 내용 비교용. 앞부분만으로도 다루는 소주제는 충분히 보임
+        "blocks": parse_blocks(body),  # 나란히 보기용 본문
     }
+
+
+def _clean(fragment: str) -> str:
+    return re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", fragment)).replace("​", "")).strip()
+
+
+def parse_blocks(body: str) -> list[dict]:
+    """스마트에디터 본문을 [{"t": "h"|"p"|"quote"|"img"|"table", "x": 텍스트}] 순서대로. 화면에 그대로 그림."""
+    blocks = []
+    for chunk in body.split('<div class="se-component ')[1:]:
+        kind = chunk.split('"', 1)[0].split()[0]
+        chunk = chunk.split(">", 1)[-1]  # 여는 div 태그의 속성 제거
+        if kind in ("se-image", "se-imageStrip", "se-imageGroup", "se-video"):
+            blocks.append({"t": "img", "x": ""})
+        elif kind == "se-quotation":
+            blocks.append({"t": "quote", "x": _clean(chunk)})
+        elif kind == "se-sectionTitle":
+            blocks.append({"t": "h", "x": _clean(chunk)})
+        elif kind == "se-table":
+            blocks.append({"t": "table", "x": _clean(chunk)[:300]})
+        elif kind == "se-text":
+            for p in re.findall(r'<p class="se-text-paragraph[^>]*>(.*?)</p>', chunk, flags=re.S):
+                x = _clean(p)
+                if not x:
+                    continue
+                # 글씨를 크게(24px 이상) 쓴 짧은 줄은 사실상 소제목
+                big = re.search(r"se-fs-fs(2[4-9]|3\d)", p) and len(x) < 60
+                blocks.append({"t": "h" if big else "p", "x": x})
+        if "공감한 사람 보러가기" in chunk:
+            break
+    return blocks[:300]
 
 
 def targets(posts: list[dict]) -> dict:
@@ -101,7 +136,7 @@ async def analyze(keyword: str) -> dict:
         raise RuntimeError("네이버 상위 글을 3개 이상 읽지 못했습니다. 잠시 후 다시 시도해 주세요.")
     lines = "\n".join(
         f"{p['rank']}위 | {p['title']} | {p['chars']}자 | 사진 {p['images']} | 인용구 {p['quotes']} | "
-        f"키워드 {p['keyword_count']}회 | 도입: {p['intro'][:150]}" for p in posts)
+        f"키워드 {p['keyword_count']}회 | 본문 앞부분: {p['text'][:600]}" for p in posts)
     ai, cost = await asyncio.to_thread(generator.ask_json, f"메인 키워드: {keyword}\n\n{lines}", SYSTEM, SCHEMA)
     return {"keyword": keyword, "posts": posts, "targets": targets(posts), **ai, "api_equivalent_usd": cost}
 
@@ -155,4 +190,10 @@ if __name__ == "__main__":
         == [("a", "1"), ("b_2", "3")]
     t = targets([{"chars": 3000, "keyword_count": 15, "images": 10, "quotes": 6}] * 3 + [{"chars": 1000, "keyword_count": 1, "images": 0, "quotes": 0}])
     assert t == {"chars": 3000, "keyword_count": 15, "images": 8, "quotes": 6}, t
+    blocks = parse_blocks('x<div class="se-component se-text"><p class="se-text-paragraph"><span class="se-fs-fs28">소제목</span></p>'
+                          '<p class="se-text-paragraph">본문 &amp; 문장</p><p class="se-text-paragraph"> </p></div>'
+                          '<div class="se-component se-image"></div><div class="se-component se-quotation"><p>인용</p></div>'
+                          '<div class="se-component se-horizontalLine"></div>')
+    assert blocks == [{"t": "h", "x": "소제목"}, {"t": "p", "x": "본문 & 문장"}, {"t": "img", "x": ""},
+                      {"t": "quote", "x": "인용"}], blocks
     print("ok")
