@@ -126,6 +126,7 @@
     <div class="toolbar">
       <button class="ghost" id="copyRich" disabled>블로그용 복사</button>
       <button class="ghost" id="copyHtml" disabled>HTML 복사</button>
+      <button class="ghost" id="sideBtn" disabled title="상위글 분석이 끝나면 눌러집니다">상위 노출 글과 비교</button>
       <span class="count" id="count"></span>
     </div>
     <div id="score"></div>
@@ -158,17 +159,27 @@ function toast(msg) {
 let suggestion = null;  // /api/subtopics 결과
 let bench = null;       // /api/benchmark 결과
 
+let benchJob = null;     // 진행 중인 상위글 분석 (글 생성이 끝나길 기다림)
+
 // 상위글 분석: 세부 주제 찾기와 동시에 실행. 실패해도 글 생성은 그대로 가능
-async function loadBench(keyword) {
+function loadBench(keyword) {
+  benchJob = fetchBench(keyword);
+  return benchJob;
+}
+
+async function fetchBench(keyword) {
   bench = null;
+  $("sideBtn").disabled = true;
   $("benchCard").hidden = false;
   $("bench").innerHTML = '<p class="cands">상위 글 읽고 분석하는 중… (30초 안팎)</p>';
   try {
     bench = await post("/api/benchmark", {keyword});
   } catch (err) {
-    $("bench").innerHTML = `<p class="cands">분석 실패: ${esc(err.message)}<br>기준 없이 글 생성은 가능합니다.</p>`;
+    $("bench").innerHTML = `<p class="cands">분석 실패: ${esc(err.message)}<br>기준 없이 글 생성은 가능합니다.</p>
+      <button class="ghost" onclick="loadBench($('keyword').value.trim())">다시 분석</button>`;
     return;
   }
+  $("sideBtn").disabled = false;
   const t = bench.targets;
   const rows = bench.posts.map(p => `<tr><td>${p.rank}</td><td><a href="${esc(p.url)}" target="_blank" rel="noopener" title="${esc(p.title)}">${esc(p.title)}</a></td>
     <td>${p.chars.toLocaleString()}</td><td>${p.images}</td><td>${p.keyword_count}</td></tr>`).join("");
@@ -214,11 +225,14 @@ function markKw(safeHtml, keyword) {
 }
 
 // 나란히 보기: 위에 분석 4칸, 아래 왼쪽 내 글 / 오른쪽 상위 글
-function openSide(keyword, me) {
+function openSide(keyword) {
   $("side").hidden = false;
   document.body.style.overflow = "hidden";
-  $("sideMine").innerHTML = `<p class="hdr"><b>내 글</b><span>${me.chars.toLocaleString()}자 · 사진 ${me.images} · 인용구 ${me.quotes} · 키워드 ${me.keyword_count}</span></p>`
-    + markKw($("preview").innerHTML, keyword);
+  const me = myStats(keyword);
+  $("sideMine").innerHTML = me
+    ? `<p class="hdr"><b>내 글</b><span>${me.chars.toLocaleString()}자 · 사진 ${me.images} · 인용구 ${me.quotes} · 키워드 ${me.keyword_count}</span></p>`
+      + markKw($("preview").innerHTML, keyword)
+    : '<p class="hdr"><b>내 글</b></p><p class="cands">아직 글이 없어요. 왼쪽 "② 이 주제로 글 생성"을 누르면 여기에 내 글이 나와 상위 글과 나란히 비교됩니다.</p>';
   $("sideTabs").innerHTML = bench.posts.map((p, i) => `<button data-i="${i}">${p.rank}위</button>`).join("")
     + `<a class="ghost-link" id="sideLink" target="_blank" rel="noopener">네이버에서 열기 ↗</a>`;
   $("sideTabs").querySelectorAll("button").forEach(b => b.onclick = () => showTop(+b.dataset.i, keyword));
@@ -246,7 +260,7 @@ function showTop(i, keyword) {
 let sideRank = 0;
 function renderInsights() {
   const li = xs => xs.length ? `<ul class="tight">${xs.map(x => `<li>${x}</li>`).join("")}</ul>` : '<p class="cands">없음</p>';
-  const c = lastCompare, wait = '<p class="cands">내용 비교 중… 잠시 후 채워집니다</p>';
+  const c = lastCompare, wait = html ? '<p class="cands">내용 비교 중… 잠시 후 채워집니다</p>' : '<p class="cands">글을 생성하면 채워집니다</p>';
   const ok = lastCells.filter(x => !x[3]).map(([k, v, g]) => `${esc(k)} ${esc(v)} <small>(${esc(g)})</small>`);
   const bad = lastCells.filter(x => x[3]).map(([k, v, g]) => `<b>${esc(k)}</b> ${esc(v)} → ${esc(g)}`);
   $("insights").innerHTML = `
@@ -293,15 +307,29 @@ function renderScore(t, keyword) {
 }
 
 // 내 글 vs 상위 5개: 숫자 표는 바로, 내용 비교는 Claude 호출 후
-async function renderCompare(keyword) {
-  if (!bench) return $("compare").innerHTML = "";
-  const text = bodyText(), top = bench.posts.slice(0, 3);
-  const avg = k => Math.round(top.reduce((s, p) => s + p[k], 0) / top.length);
-  const me = {
-    title: $("preview").querySelector("h1")?.innerText || "", chars: text.length,
+function myStats(keyword) {
+  if (!html) return null;
+  const text = bodyText();
+  return {
+    title: $("preview").querySelector("h1")?.innerText || "", chars: text.length, text,
     images: $("preview").querySelectorAll(".slot").length,
     quotes: $("preview").querySelectorAll("blockquote").length, keyword_count: countKw(text, keyword),
   };
+}
+
+async function renderCompare(keyword) {
+  if (!bench) {
+    $("compare").innerHTML = `<div class="card cmp-card"><h2 class="sec">내 글 vs 상위 5개</h2>
+      <p class="cands">상위글 분석이 끝나지 않아 비교하지 못했어요.</p><button class="primary" id="retryBench" style="max-width:320px">상위글 분석하고 비교하기</button></div>`;
+    $("retryBench").onclick = async () => {
+      $("retryBench").disabled = true; $("retryBench").textContent = "분석 중… (1분 안팎)";
+      await loadBench(keyword);
+      renderCompare(keyword);
+    };
+    return;
+  }
+  const me = myStats(keyword), text = me.text, top = bench.posts.slice(0, 3);
+  const avg = k => Math.round(top.reduce((s, p) => s + p[k], 0) / top.length);
   const low = k => me[k] < avg(k) * .9 ? ' class="low"' : "";
   const row = p => `<td>${p.chars.toLocaleString()}</td><td>${p.images}</td><td>${p.quotes}</td><td>${p.keyword_count}</td>`;
   $("compare").innerHTML = `<div class="card cmp-card">
@@ -314,7 +342,7 @@ async function renderCompare(keyword) {
     <button class="primary" id="openSide" style="max-width:320px">상위 글과 나란히 보기</button>
     <div id="content"><p class="cands">상위 글과 내용 비교하는 중… (30초 안팎)</p></div></div>`;
   lastCompare = null;
-  $("openSide").onclick = () => openSide(keyword, me);
+  $("openSide").onclick = () => openSide(keyword);
   let c;
   try {
     c = await post("/api/compare", {keyword, my_text: text, posts: bench.posts.map(({rank, title, text}) => ({rank, title, text}))});
@@ -376,6 +404,12 @@ $("form").onsubmit = async e => {
 // ② 선택한 주제로 글 생성
 $("go").onclick = async () => {
   const pick = document.querySelector("input[name=topic]:checked").value;
+  if (!bench && benchJob) {  // 분석 전에 누르면 기준·비교가 빠지므로 끝날 때까지 기다림
+    $("go").disabled = true;
+    $("go").textContent = "상위글 분석 끝나길 기다리는 중…";
+    await benchJob;
+    $("go").disabled = false;
+  }
   const targets = chosenTargets();
   const body = {keyword: $("keyword").value.trim(), hospital: $("hospital").value.trim(), pubmed_query: suggestion.disease_en, targets};
   if (pick === "custom") {
@@ -397,6 +431,7 @@ async function runGenerate(body, waitMsg) {
   $("go").textContent = "생성 중… (1~2분)";
   $("preview").innerHTML = `<p class="empty">${waitMsg}</p>`;
   $("warnings").innerHTML = $("score").innerHTML = $("compare").innerHTML = "";
+  html = ""; lastCells = []; lastCompare = null;
   $("copyRich").disabled = $("copyHtml").disabled = true;
   try {
     const data = await post("/api/generate", body);
@@ -443,6 +478,7 @@ $("copyRich").onclick = async () => {
   })]);
   toast("서식 포함 복사됨");
 };
+$("sideBtn").onclick = () => openSide($("keyword").value.trim());
 $("copyHtml").onclick = async () => { await navigator.clipboard.writeText(html); toast("HTML 복사됨"); };
 </script>
 </body>
