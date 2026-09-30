@@ -65,13 +65,15 @@ SYSTEM_PROMPT = """당신은 진료실에서 매일 환자를 만나는 병원 �
 
 
 def build_prompt(keyword: str, related: list[dict], papers: list[dict], hospital: str = "",
-                 subtopic: str = "", intent: str = "", targets: dict | None = None) -> str:
+                 subtopic: str = "", intent: str = "", targets: dict | None = None,
+                 revise_html: str = "", supplement: list[str] | None = None) -> str:
     kw_lines = "\n".join(f"- {k['keyword']} (월 검색량 {k['total']:,})" for k in related) or "- (없음)"
     paper_lines = "\n\n".join(
         f"[{i}] {p['title']} ({p['journal']}, {p['year']})\n요약: {p['summary']}"
         for i, p in enumerate(papers, 1)
     ) or "(없음 - 논문 인용 없이 작성)"
-    target = f"{keyword} {subtopic}" if subtopic else keyword
+    # 세부 주제가 "여드름 종류"처럼 키워드를 이미 포함하면 "여드름 여드름 종류"가 되지 않게
+    target = subtopic if subtopic.startswith(keyword) else f"{keyword} {subtopic}" if subtopic else keyword
     focus = f"""
 <search_intent>
 이 글은 "{target}"을(를) 검색한 사람을 위한 글입니다. 그 사람이 알고 싶은 것은 "{subtopic}"입니다.
@@ -82,6 +84,20 @@ def build_prompt(keyword: str, related: list[dict], papers: list[dict], hospital
   질문 형태로만 쓰고, 효과를 보장하지 말고 의학적으로 정직하게 답합니다.
 </search_intent>
 """ if subtopic else ""
+    revise = ""
+    if revise_html:
+        items = "\n".join(f"- {s}" for s in supplement or [])
+        revise = f"""
+<previous_post>
+{revise_html}
+</previous_post>
+<supplement>
+위 글을 바탕으로 고쳐 씁니다. 좋은 문장·흐름·제목·사진 자리는 최대한 살리고,
+네이버 상위 글들이 다루는데 이 글에 빠진 아래 소주제를 이야기 흐름에 맞게 녹여 넣습니다.
+필요하면 <h2>를 하나 더 만들어도 됩니다. 사진 자리 번호는 처음부터 다시 매깁니다.
+{items}
+</supplement>
+"""
     return f"""메인 키워드: {target}
 병원명: {hospital or '(언급하지 않음)'}
 {focus}{benchmark_block(keyword, targets)}
@@ -92,7 +108,7 @@ def build_prompt(keyword: str, related: list[dict], papers: list[dict], hospital
 <papers>
 {paper_lines}
 </papers>
-
+{revise}
 위 자료로 네이버 블로그 글을 작성해 주세요."""
 
 
@@ -182,8 +198,9 @@ def ask_json(prompt: str, system: str, schema: dict, api_model: str = "claude-ha
 
 
 def generate_post(keyword: str, related: list[dict], papers: list[dict], hospital: str = "",
-                  subtopic: str = "", intent: str = "", targets: dict | None = None) -> dict:
-    prompt = build_prompt(keyword, related, papers, hospital, subtopic, intent, targets)
+                  subtopic: str = "", intent: str = "", targets: dict | None = None,
+                  revise_html: str = "", supplement: list[str] | None = None) -> dict:
+    prompt = build_prompt(keyword, related, papers, hospital, subtopic, intent, targets, revise_html, supplement)
     if os.getenv("ANTHROPIC_API_KEY"):
         engine, (text, cost) = "api", _via_api(prompt)
     else:

@@ -59,6 +59,7 @@ def parse_post(page: str, keyword: str) -> dict:
         "keyword_count": text.replace(" ", "").count(kw),
         "keyword_in_title": kw in title.replace(" ", ""),
         "intro": text[:200],
+        "text": text[:3000],  # 내용 비교용. 앞부분만으로도 다루는 소주제는 충분히 보임
     }
 
 
@@ -102,6 +103,44 @@ async def analyze(keyword: str) -> dict:
         f"키워드 {p['keyword_count']}회 | 도입: {p['intro'][:150]}" for p in posts)
     ai, cost = await asyncio.to_thread(generator.ask_json, f"메인 키워드: {keyword}\n\n{lines}", SYSTEM, SCHEMA)
     return {"keyword": keyword, "posts": posts, "targets": targets(posts), **ai, "api_equivalent_usd": cost}
+
+
+COMPARE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "covered": {"type": "array", "items": {"type": "string"}},
+        "missing": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {"topic": {"type": "string"}, "posts": {"type": "integer"}, "note": {"type": "string"}},
+                "required": ["topic", "posts", "note"],
+                "additionalProperties": False,
+            },
+        },
+        "strengths": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["covered", "missing", "strengths"],
+    "additionalProperties": False,
+}
+
+COMPARE_SYSTEM = """당신은 병원 블로그 편집자입니다. 네이버 검색 상위 글들과 원장이 쓴 새 글을 내용 기준으로 비교합니다.
+
+- covered: 상위 글도 다루고 새 글도 다룬 소주제 3~5개. 짧은 명사구.
+- missing: 상위 글 2개 이상이 다루는데 새 글에는 없는 소주제. 많이 다룬 순으로 최대 4개.
+  posts는 그 소주제를 다룬 상위 글 수, note는 병원 블로그에서 어떻게 다루면 되는지 한 줄.
+  제품명 추천·순위, 체험담, 전후 사진, 시술 권유처럼 의료광고법상 병원이 따라 하면 안 되는 내용은 missing에 넣지 않습니다.
+  제품 이야기가 필요하면 note에 "제품명 없이 성분 중심으로"처럼 적습니다.
+- strengths: 새 글에만 있는 강점 1~3개(예: 논문 근거 인용, 의사 1인칭 관점). 짧게."""
+
+
+async def compare(keyword: str, my_text: str, posts: list[dict]) -> dict:
+    tops = "\n\n".join(f"<post rank=\"{p['rank']}\" title=\"{p['title']}\">\n{p['text']}\n</post>" for p in posts)
+    prompt = f"메인 키워드: {keyword}\n\n<top_posts>\n{tops}\n</top_posts>\n\n<my_post>\n{my_text[:6000]}\n</my_post>"
+    # 소주제 대조는 판단이 필요해 haiku 대신 sonnet
+    data, cost = await asyncio.to_thread(generator.ask_json, prompt, COMPARE_SYSTEM, COMPARE_SCHEMA,
+                                         "claude-sonnet-5-5", "sonnet")
+    return {**data, "api_equivalent_usd": cost}
 
 
 if __name__ == "__main__":

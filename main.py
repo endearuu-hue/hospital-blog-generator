@@ -37,6 +37,21 @@ class GenerateRequest(BaseModel):
     intent: str = Field("", max_length=200)
     hospital: str = Field("", max_length=50)
     targets: Targets | None = None
+    # 보충해서 다시 쓰기: 이전 글 + 채워 넣을 소주제
+    revise_html: str = Field("", max_length=40000)
+    supplement: list[str] = Field([], max_length=6)
+
+
+class TopPost(BaseModel):
+    rank: int
+    title: str = Field(max_length=200)
+    text: str = Field(max_length=4000)
+
+
+class CompareRequest(BaseModel):
+    keyword: str = Field(min_length=1, max_length=50)
+    my_text: str = Field(min_length=100, max_length=20000)
+    posts: list[TopPost] = Field(min_length=1, max_length=10)
 
 
 @app.get("/")
@@ -63,6 +78,14 @@ async def bench(req: SubtopicRequest):
         return await benchmark.analyze(req.keyword.strip())
     except Exception as e:
         raise HTTPException(502, f"상위글 분석 실패: {e}")
+
+
+@app.post("/api/compare")
+async def compare(req: CompareRequest):
+    try:
+        return await benchmark.compare(req.keyword.strip(), req.my_text, [p.model_dump() for p in req.posts])
+    except Exception as e:
+        raise HTTPException(502, f"내용 비교 실패: {e}")
 
 
 @app.post("/api/generate")
@@ -94,7 +117,8 @@ async def generate(req: GenerateRequest):
         # 동기 호출이라 스레드로 넘겨 이벤트 루프를 막지 않음
         post = await asyncio.to_thread(generator.generate_post, req.keyword, related, papers,
                                        req.hospital, req.subtopic, req.intent,
-                                       req.targets.model_dump() if req.targets else None)
+                                       req.targets.model_dump() if req.targets else None,
+                                       req.revise_html, req.supplement)
     except Exception as e:
         raise HTTPException(502, f"글 생성 실패: {e}")
 

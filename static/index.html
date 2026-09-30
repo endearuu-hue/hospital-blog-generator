@@ -64,6 +64,16 @@
   .score div { border:1px solid var(--line); border-radius:8px; padding:8px 10px; font-size:12px; color:var(--muted); }
   .score b { display:block; font-size:18px; color:#03a04a; }
   .score .low b { color:#d46b08; }
+  .cmp-card { margin-bottom:12px; }
+  .bench tr.avg td { color:var(--muted); }
+  .bench tr.me td { background:#f3faf6; font-weight:700; border-top:2px solid var(--accent); border-bottom:2px solid var(--accent); }
+  .bench td.low { color:#d46b08; }
+  .tag { font-size:11px; background:var(--accent); color:#fff; border-radius:4px; padding:1px 5px; margin-right:4px; }
+  .cols { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:14px; }
+  @media (max-width:700px) { .cols { grid-template-columns:1fr; } }
+  .cols .chk { align-items:flex-start; }
+  .cols .chk label { margin:0; font-weight:400; }
+  .have { color:#03a04a; font-size:13px; } .miss { color:#d46b08; font-size:13px; }
   #preview .slot { border:2px dashed #bfe8cf; background:#f3faf6; color:#03a04a; padding:12px; border-radius:8px; }
 </style>
 </head>
@@ -100,6 +110,7 @@
       <span class="count" id="count"></span>
     </div>
     <div id="score"></div>
+    <div id="compare"></div>
     <div id="warnings"></div>
     <article id="preview"><p class="empty">키워드를 입력하고 글을 생성하세요.</p></article>
   </section>
@@ -164,16 +175,19 @@ function chosenTargets() {
 }
 
 // 완성 글이 기준을 지켰는지. 90% 미만(키워드는 과다도) 주황
+// 사진 자리 표시는 발행 때 사진으로 바뀌므로 글자·키워드 수에서 뺌
+const bodyText = () => [...$("preview").children].filter(e => !e.classList.contains("slot")).map(e => e.innerText).join("\n");
+const countKw = (text, keyword) => text.replace(/\s/g, "").split(keyword.replace(/\s/g, "")).length - 1;
+
 function renderScore(t, keyword) {
   if (!t) return $("score").innerHTML = "";
-  // 사진 자리 표시는 발행 때 사진으로 바뀌므로 글자·키워드 수에서 뺌
-  const text = [...$("preview").children].filter(e => !e.classList.contains("slot")).map(e => e.innerText).join("\n"), flat = text.replace(/\s/g, "");
+  const text = bodyText();
   const kw = keyword.replace(/\s/g, "");
   const h1 = ($("preview").querySelector("h1")?.innerText || "").replace(/\s/g, "");
   const cells = [];
   if (t.chars) cells.push(["글자 수", text.length.toLocaleString(), `목표 ${t.chars.toLocaleString()}`, text.length < t.chars * .9]);
   if (t.keyword_count) {
-    const n = flat.split(kw).length - 1;
+    const n = countKw(text, keyword);
     cells.push(["키워드", `${n}회`, `목표 ${t.keyword_count}회`, n < t.keyword_count * .7 || n > t.keyword_count * 1.5]);
   }
   if (t.images) {
@@ -186,6 +200,47 @@ function renderScore(t, keyword) {
   }
   $("score").innerHTML = `<p class="cands" style="margin:0 0 6px">완성 글 vs 상위글 기준</p><div class="score">` +
     cells.map(([k, v, goal, low]) => `<div class="${low ? "low" : ""}">${k}<b>${v}</b>${goal}</div>`).join("") + "</div>";
+}
+
+// 내 글 vs 상위 5개: 숫자 표는 바로, 내용 비교는 Claude 호출 후
+async function renderCompare(keyword) {
+  if (!bench) return $("compare").innerHTML = "";
+  const text = bodyText(), top = bench.posts.slice(0, 3);
+  const avg = k => Math.round(top.reduce((s, p) => s + p[k], 0) / top.length);
+  const me = {
+    title: $("preview").querySelector("h1")?.innerText || "", chars: text.length,
+    images: $("preview").querySelectorAll(".slot").length,
+    quotes: $("preview").querySelectorAll("blockquote").length, keyword_count: countKw(text, keyword),
+  };
+  const low = k => me[k] < avg(k) * .9 ? ' class="low"' : "";
+  const row = p => `<td>${p.chars.toLocaleString()}</td><td>${p.images}</td><td>${p.quotes}</td><td>${p.keyword_count}</td>`;
+  $("compare").innerHTML = `<div class="card cmp-card">
+    <h2 class="sec">내 글 vs 상위 5개</h2>
+    <table class="bench cmp"><tr><th>#</th><th>제목</th><th>글자</th><th>사진</th><th>인용구</th><th>키워드</th></tr>
+    ${bench.posts.map(p => `<tr><td>${p.rank}</td><td><a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.title)}</a></td>${row(p)}</tr>`).join("")}
+    <tr class="avg"><td></td><td>1~3위 평균</td><td>${avg("chars").toLocaleString()}</td><td>${avg("images")}</td><td>${avg("quotes")}</td><td>${avg("keyword_count")}</td></tr>
+    <tr class="me"><td>👉</td><td><span class="tag">내 글</span>${esc(me.title)}</td><td${low("chars")}>${me.chars.toLocaleString()}</td>
+      <td${low("images")}>${me.images}</td><td${low("quotes")}>${me.quotes}</td><td${low("keyword_count")}>${me.keyword_count}</td></tr></table>
+    <div id="content"><p class="cands">상위 글과 내용 비교하는 중… (30초 안팎)</p></div></div>`;
+  let c;
+  try {
+    c = await post("/api/compare", {keyword, my_text: text, posts: bench.posts.map(({rank, title, text}) => ({rank, title, text}))});
+  } catch (err) {
+    return $("content").innerHTML = `<p class="cands">내용 비교 실패: ${esc(err.message)}</p>`;
+  }
+  const li = xs => xs.map(x => `<li>${esc(x)}</li>`).join("");
+  $("content").innerHTML = `<div class="cols">
+      <div><b class="have">상위 글도, 내 글도 다룬 것</b><ul class="tight">${li(c.covered)}</ul></div>
+      <div><b class="miss">상위 글엔 있는데 내 글엔 없는 것</b>${c.missing.length ? c.missing.map((m, i) => `
+        <div class="chk"><input type="checkbox" id="miss${i}" checked><label for="miss${i}"><b>${esc(m.topic)}</b> · 상위 ${m.posts}개 글<br><small>${esc(m.note)}</small></label></div>`).join("")
+        : '<p class="cands">빠진 주제 없음</p>'}</div></div>
+    ${c.strengths.length ? `<p style="font-size:13px;margin:10px 0 0"><b>내 글만의 강점</b> · ${c.strengths.map(esc).join(" · ")}</p>` : ""}
+    ${c.missing.length ? '<button class="primary" id="supplement" style="max-width:320px">체크한 내용 보충해서 다시 쓰기</button>' : ""}`;
+  if (c.missing.length) $("supplement").onclick = () => {
+    const picks = c.missing.filter((_, i) => $(`miss${i}`).checked).map(m => `${m.topic} (${m.note})`);
+    if (!picks.length) return toast("보충할 내용을 하나 이상 체크해 주세요");
+    runGenerate({...lastBody, revise_html: html, supplement: picks}, "보충해서 다시 쓰는 중…");
+  };
 }
 
 async function post(url, body) {
@@ -235,11 +290,19 @@ $("go").onclick = async () => {
     const t = suggestion.subtopics[+pick];
     Object.assign(body, {subtopic: t.topic, intent: t.intent, pubmed_query: t.pubmed_query});
   }
+  lastBody = body;
+  runGenerate(body, "키워드·논문 수집 후 글을 쓰는 중입니다…");
+};
 
+let lastBody = null;  // 보충해서 다시 쓰기 때 같은 조건으로 재요청
+
+async function runGenerate(body, waitMsg) {
+  const targets = body.targets;
   $("go").disabled = true;
   $("go").textContent = "생성 중… (1~2분)";
-  $("preview").innerHTML = '<p class="empty">키워드·논문 수집 후 글을 쓰는 중입니다…</p>';
-  $("warnings").innerHTML = $("score").innerHTML = "";
+  $("preview").innerHTML = `<p class="empty">${waitMsg}</p>`;
+  $("warnings").innerHTML = $("score").innerHTML = $("compare").innerHTML = "";
+  $("copyRich").disabled = $("copyHtml").disabled = true;
   try {
     const data = await post("/api/generate", body);
 
@@ -268,11 +331,13 @@ $("go").onclick = async () => {
        <p>${esc(p.journal)} · ${esc(p.year)}</p><p>${esc(p.summary)}</p></div>`).join("");
   } catch (err) {
     $("preview").innerHTML = `<p class="empty">오류: ${esc(err.message)}</p>`;
+    return;
   } finally {
     $("go").disabled = false;
     $("go").textContent = "② 이 주제로 글 생성";
   }
-};
+  renderCompare(body.keyword);
+}
 
 // 네이버 스마트에디터에 붙여넣으면 제목·소제목 서식이 유지됨
 $("copyRich").onclick = async () => {
