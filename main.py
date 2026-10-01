@@ -4,6 +4,7 @@ from pathlib import Path
 import httpx
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -15,6 +16,12 @@ from services import benchmark, generator, keyword_pipeline, naver_keyword, pubm
 STATIC = Path(__file__).parent / "static"
 app = FastAPI(title="Hospital Blog Generator")
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
+
+# 웹 비교기(naver-top-posts.vercel.app)가 이 PC의 생성기를 직접 부를 수 있게 그 주소만 허용
+WEB_ORIGIN = "https://naver-top-posts.vercel.app"
+# allow_private_network: 크롬은 공개 사이트 → localhost 요청 전에 이 허락을 따로 받음
+app.add_middleware(CORSMiddleware, allow_origins=[WEB_ORIGIN], allow_methods=["GET", "POST"],
+                   allow_headers=["Content-Type"], allow_private_network=True)
 
 
 class SubtopicRequest(BaseModel):
