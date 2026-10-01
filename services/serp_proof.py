@@ -52,11 +52,12 @@ def _scroll_to(page, bottom: int):
     page.wait_for_timeout(500)
 
 
-def capture(keyword: str) -> dict:
+def capture(keyword: str, n: int = TOP_N, source: str = "proof") -> dict:
+    """source: "proof"(증명 버튼) | "track"(매일 순위 추적)."""
     now = datetime.now(KST)
     stem = f"{now:%Y%m%d-%H%M%S}_{re.sub(r'[^0-9A-Za-z가-힣]+', '-', keyword)[:30]}"
     PROOF_DIR.mkdir(exist_ok=True)
-    result = {"keyword": keyword, "captured_at": now.isoformat(timespec="seconds"), "pages": {}}
+    result = {"keyword": keyword, "captured_at": now.isoformat(timespec="seconds"), "source": source, "pages": {}}
     with _lock, sync_playwright() as p:
         browser = p.chromium.launch()
         try:
@@ -69,7 +70,7 @@ def capture(keyword: str) -> dict:
                 page.goto(url, wait_until="networkidle", timeout=30000)
                 _scroll_to(page, page.evaluate("document.body.scrollHeight"))
                 stamp = f"네이버 {label} · 검색어 「{keyword}」 · {now:%Y-%m-%d %H:%M:%S} KST · 빨간 상자 = 블로그 글 순위"
-                posts = page.evaluate(COLLECT_JS, [TOP_N, stamp])
+                posts = page.evaluate(COLLECT_JS, [n, stamp])
                 height = page.evaluate("document.body.scrollHeight")
                 # 마지막 글 아래 조금까지만 자름(표시 띠가 위에 붙어 좌표가 36px쯤 밀림)
                 bottom = min(height, (posts[-1]["bottom"] + 360) if posts else 3000)

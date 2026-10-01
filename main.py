@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 
 load_dotenv()
 
-from services import benchmark, generator, keyword_pipeline, naver_keyword, pubmed, serp_proof  # noqa: E402  (.env 로드 후 import)
+from services import benchmark, generator, keyword_pipeline, naver_keyword, pubmed, serp_proof, tracker  # noqa: E402  (.env 로드 후 import)
 
 STATIC = Path(__file__).parent / "static"
 app = FastAPI(title="Hospital Blog Generator")
@@ -110,6 +110,40 @@ async def proof(req: ProofRequest):
     except Exception as e:
         raise HTTPException(502, f"검색 화면 캡처 실패: {e}")
     return {**cap, "checks": serp_proof.verify(cap, [p.model_dump() for p in req.posts], req.basis)}
+
+
+@app.get("/api/track")
+def track_list():
+    return {"keywords": tracker.keywords()}
+
+
+@app.post("/api/track")
+def track_add(req: SubtopicRequest):
+    kws = tracker.keywords()
+    if req.keyword.strip() not in kws:
+        tracker.save(kws + [req.keyword.strip()])
+    return {"keywords": tracker.keywords()}
+
+
+@app.delete("/api/track")
+def track_remove(keyword: str):
+    tracker.save([k for k in tracker.keywords() if k != keyword])  # 쌓인 기록은 지우지 않음
+    return {"keywords": tracker.keywords()}
+
+
+@app.post("/api/track/run")
+async def track_run(req: SubtopicRequest):
+    """지금 한 번 캡처 (키워드를 새로 등록했을 때 첫 기록용)."""
+    try:
+        await asyncio.to_thread(serp_proof.capture, req.keyword.strip(), tracker.DEPTH, "track")
+    except Exception as e:
+        raise HTTPException(502, f"캡처 실패: {e}")
+    return {"ok": True}
+
+
+@app.get("/api/track/history")
+def track_history(keyword: str, basis: Literal["blog", "pc", "main"] = "blog"):
+    return tracker.history(tracker.records(keyword), basis)
 
 
 @app.post("/api/compare")

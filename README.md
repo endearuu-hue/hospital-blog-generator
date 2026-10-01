@@ -141,6 +141,15 @@ API 키가 없어서 실제 글 생성을 테스트할 수 없었습니다. 사�
 제목:     허리디스크 증세, 허리보다 다리가 먼저 알려줍니다
 ```
 
+## 순위 증명·추적
+
+- **순위 증명**: 상위글 분석 표 아래 버튼. 네이버 모바일 통합검색·모바일 블로그탭·PC 블로그탭을 실제 브라우저(Playwright)로 열어 캡처하고, 분석한 순위와 대조합니다. 캡처와 기록은 `proofs/`에 쌓입니다.
+- **순위 추적**: 왼쪽 「순위 추적」 칸에 키워드를 넣으면 매일 오전 9시에 1~10위를 캡처해 날짜별 표로 보여 줍니다.
+  - 예약 작업 등록: `powershell -ExecutionPolicy Bypass -File track_task.ps1` (PC가 꺼져 있었으면 켜진 뒤 바로 실행)
+  - 지금 한 번 돌리기: `.venv\Scripts\python -m services.tracker` · 실행 기록은 `track.log`
+  - 추적 이미지는 60일 뒤 지우고 순위 기록(JSON)은 남깁니다.
+  - 처음 설치한 PC에서는 `.venv\Scripts\python -m playwright install chromium`이 필요합니다.
+
 ## 알려진 한계
 
 - 네이버 자동완성은 공식 API가 아닙니다. 막히면 후보가 비고, Claude가 흔한 주제로 채웁니다.
