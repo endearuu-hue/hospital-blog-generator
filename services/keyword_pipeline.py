@@ -69,17 +69,17 @@ async def get_naver_autocomplete(keyword: str, limit: int = 10) -> list[str]:
 
 async def suggest_subtopics(keyword: str) -> dict:
     candidates = await get_naver_autocomplete(keyword)
-    volumes: dict[str, int] = {}
+    volumes: dict[str, str] = {}
     if naver_keyword.is_configured():
         try:
             for row in await naver_keyword.related_keywords(keyword, limit=20):
-                volumes[row["keyword"]] = row["total"]
+                volumes[row["keyword"]] = row["label"]
         except httpx.HTTPError:
             pass
 
-    lines = [f"- {c}" + (f" (월 검색량 {volumes[c.replace(' ', '')]:,})" if c.replace(" ", "") in volumes else "")
+    lines = [f"- {c}" + (f" (월 검색량 {volumes[c.replace(' ', '')]})" if c.replace(" ", "") in volumes else "")
              for c in candidates]
-    lines += [f"- {k} (월 검색량 {v:,})" for k, v in volumes.items() if k not in {c.replace(" ", "") for c in candidates}]
+    lines += [f"- {k} (월 검색량 {v})" for k, v in volumes.items() if k not in {c.replace(" ", "") for c in candidates}]
     prompt = f"메인 키워드: {keyword}\n\n<candidates>\n" + ("\n".join(lines) or "(후보 없음)") + "\n</candidates>"
 
     data, cost = await asyncio.to_thread(generator.ask_json, prompt, SYSTEM, SCHEMA, API_MODEL, CLI_MODEL)

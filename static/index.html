@@ -454,7 +454,7 @@ async function runGenerate(body, waitMsg) {
 
     $("warnings").innerHTML = data.warnings.map(w => `<div class="warn">${esc(w)}</div>`).join("");
     $("kwCard").hidden = !data.keywords.length;
-    $("kw").innerHTML = data.keywords.map(k => `<tr><td>${esc(k.keyword)}</td><td>${k.total.toLocaleString()}</td></tr>`).join("");
+    $("kw").innerHTML = data.keywords.map(k => `<tr><td>${esc(k.keyword)}</td><td>${esc(k.label ?? k.total.toLocaleString())}</td></tr>`).join("");
     $("paperCard").hidden = !data.papers.length;
     $("papers").innerHTML = data.papers.map(p =>
       `<div class="paper"><a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.title)}</a>

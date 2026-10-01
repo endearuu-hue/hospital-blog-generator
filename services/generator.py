@@ -67,7 +67,7 @@ SYSTEM_PROMPT = """당신은 진료실에서 매일 환자를 만나는 병원 �
 def build_prompt(keyword: str, related: list[dict], papers: list[dict], hospital: str = "",
                  subtopic: str = "", intent: str = "", targets: dict | None = None,
                  revise_html: str = "", supplement: list[str] | None = None) -> str:
-    kw_lines = "\n".join(f"- {k['keyword']} (월 검색량 {k['total']:,})" for k in related) or "- (없음)"
+    kw_lines = "\n".join(f"- {k['keyword']} (월 검색량 {k['label']})" for k in related) or "- (없음)"
     paper_lines = "\n\n".join(
         f"[{i}] {p['title']} ({p['journal']}, {p['year']})\n요약: {p['summary']}"
         for i, p in enumerate(papers, 1)

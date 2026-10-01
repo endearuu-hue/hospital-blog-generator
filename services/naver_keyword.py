@@ -23,8 +23,14 @@ def _headers(method: str, uri: str) -> dict:
 
 
 def _to_int(v) -> int:
-    # 검색량이 적으면 API가 "< 10" 문자열을 준다
-    return v if isinstance(v, int) else 5
+    # 검색량이 적으면 API가 "< 10" 문자열을 준다 → 0 으로 더하고 label 에 "10 미만"/"N 이상"으로 표시
+    return v if isinstance(v, int) else 0
+
+
+def _label(total: int, under10: bool) -> str:
+    if total == 0:
+        return "10 미만"
+    return f"{total:,} 이상" if under10 else f"{total:,}"
 
 
 def is_configured() -> bool:
@@ -47,6 +53,7 @@ async def related_keywords(keyword: str, limit: int = 10) -> list[dict]:
             "pc": pc,
             "mobile": mobile,
             "total": pc + mobile,
+            "label": _label(pc + mobile, not isinstance(item["monthlyPcQcCnt"], int) or not isinstance(item["monthlyMobileQcCnt"], int)),
             "competition": item.get("compIdx", ""),
         })
     rows.sort(key=lambda x: x["total"], reverse=True)
