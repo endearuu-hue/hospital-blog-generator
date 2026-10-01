@@ -11,11 +11,13 @@ from pydantic import BaseModel, Field
 
 load_dotenv()
 
-from services import benchmark, generator, keyword_pipeline, naver_keyword, pubmed  # noqa: E402  (.env 로드 후 import)
+from services import benchmark, generator, keyword_pipeline, naver_keyword, pubmed, serp_proof  # noqa: E402  (.env 로드 후 import)
 
 STATIC = Path(__file__).parent / "static"
 app = FastAPI(title="Hospital Blog Generator")
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
+serp_proof.PROOF_DIR.mkdir(exist_ok=True)
+app.mount("/proofs", StaticFiles(directory=serp_proof.PROOF_DIR), name="proofs")  # 순위 증명 캡처
 
 # 웹 비교기(naver-top-posts.vercel.app)가 이 PC의 생성기를 직접 부를 수 있게 그 주소만 허용
 WEB_ORIGIN = "https://naver-top-posts.vercel.app"
@@ -56,6 +58,16 @@ class TopPost(BaseModel):
     text: str = Field(max_length=4000)
 
 
+class RankedUrl(BaseModel):
+    rank: int
+    url: str = Field(max_length=300)
+
+
+class ProofRequest(BaseModel):
+    keyword: str = Field(min_length=1, max_length=50)
+    posts: list[RankedUrl] = Field([], max_length=10)  # 상위글 분석 결과. 비우면 캡처만
+
+
 class CompareRequest(BaseModel):
     keyword: str = Field(min_length=1, max_length=50)
     my_text: str = Field(min_length=100, max_length=20000)
@@ -87,6 +99,15 @@ async def bench(req: SubtopicRequest):
         return await benchmark.analyze(req.keyword.strip())
     except Exception as e:
         raise HTTPException(502, f"상위글 분석 실패: {e}")
+
+
+@app.post("/api/proof")
+async def proof(req: ProofRequest):
+    try:
+        cap = await asyncio.to_thread(serp_proof.capture, req.keyword.strip())
+    except Exception as e:
+        raise HTTPException(502, f"검색 화면 캡처 실패: {e}")
+    return {**cap, "checks": serp_proof.verify(cap, [p.model_dump() for p in req.posts])}
 
 
 @app.post("/api/compare")

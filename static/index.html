@@ -93,6 +93,9 @@
   .side-tabs button.on { background:var(--accent); color:#fff; }
   .ghost-link { margin-left:auto; font-size:13px; color:var(--muted); }
   mark { background:#fff3b0; }
+  .proof-shots { display:flex; gap:8px; margin:6px 0; }
+  .proof-shot { flex:1; font-size:12px; color:var(--muted); text-align:center; }
+  .proof-shot img { width:100%; height:160px; object-fit:cover; object-position:top; border:1px solid var(--line); border-radius:6px; display:block; }
   #preview .slot { border:2px dashed #bfe8cf; background:#f3faf6; color:#03a04a; padding:12px; border-radius:8px; }
 </style>
 </head>
@@ -187,6 +190,7 @@ async function fetchBench(keyword) {
     <div><b>${esc(x)}</b></div></label>`).join("");
   $("bench").innerHTML = `
     <table class="bench"><tr><th>#</th><th>제목</th><th>글자</th><th>사진</th><th>키워드</th></tr>${rows}</table>
+    <div id="proof"><button class="ghost" onclick="runProof()">검색 화면 캡처로 순위 증명</button></div>
     <label>왜 상위일까</label><ul class="tight">${bench.reasons.map(r => `<li>${esc(r)}</li>`).join("")}</ul>
     <label>이 기준으로 씁니다 <small>숫자는 고칠 수 있음</small></label>
     <div class="chk"><input type="checkbox" id="tChars" checked><label for="tChars">분량</label><input type="number" id="vChars" value="${t.chars}" step="100" min="1000" max="8000">자</div>
@@ -198,6 +202,27 @@ async function fetchBench(keyword) {
     <label class="topic"><input type="radio" name="title" value="" checked><div><b>고르지 않음</b><small>형식만 맞춰 새로 짓기</small></div></label>
     ${titles}
     ${bench.avoid.length ? `<label>따라 하지 않음 <small>의료광고법</small></label>${bench.avoid.map(a => `<span class="pill">${esc(a)}</span>`).join("")}` : ""}`;
+}
+
+// 실제 네이버 검색 화면을 캡처해 위 순위가 화면 그대로인지 대조
+async function runProof() {
+  const kw = bench.keyword;
+  $("proof").innerHTML = '<p class="cands">네이버 검색 화면 여는 중… (30초 안팎)</p>';
+  let r;
+  try {
+    r = await post("/api/proof", {keyword: kw, posts: bench.posts.map(p => ({rank: p.rank, url: p.url}))});
+  } catch (err) {
+    $("proof").innerHTML = `<p class="cands">캡처 실패: ${esc(err.message)}</p><button class="ghost" onclick="runProof()">다시 캡처</button>`;
+    return;
+  }
+  const ok = r.checks.filter(c => c.status === "확인").length;
+  const li = r.checks.map(c => `<li class="${c.status === "확인" ? "have" : "miss"}">${c.rank}위 · ${c.status}
+    ${c.blog_rank ? `(블로그탭 ${c.blog_rank}위)` : ""}${c.main_rank ? ` · <b>통합검색 노출 ${c.main_rank}번째</b>` : ""}</li>`).join("");
+  const imgs = Object.values(r.pages).map(p => `<a href="${esc(p.image)}" target="_blank" rel="noopener" class="proof-shot">
+    <img src="${esc(p.image)}" alt="${esc(p.label)} 캡처"><span>${esc(p.label)}</span></a>`).join("");
+  $("proof").innerHTML = `<label>순위 증명 <small>${esc(r.captured_at.replace("T", " "))} 캡처 · ${ok}/${r.checks.length} 확인</small></label>
+    <ul class="tight">${li}</ul><div class="proof-shots">${imgs}</div>
+    <button class="ghost" onclick="runProof()">다시 캡처</button>`;
 }
 
 function chosenTargets() {

@@ -4,3 +4,4 @@ __pycache__/
 *.pyc
 server.log
 server.err.log
+proofs/
