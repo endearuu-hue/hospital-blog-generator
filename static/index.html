@@ -217,7 +217,7 @@ async function runProof() {
   }
   const ok = r.checks.filter(c => c.status === "확인").length;
   const li = r.checks.map(c => `<li class="${c.status === "확인" ? "have" : "miss"}">${c.rank}위 · ${c.status}
-    ${c.blog_rank ? `(블로그탭 ${c.blog_rank}위)` : ""}${c.main_rank ? ` · <b>통합검색 노출 ${c.main_rank}번째</b>` : ""}</li>`).join("");
+    ${c.ranks.blog ? `(모바일 블로그탭 ${c.ranks.blog}위)` : ""}${c.ranks.main ? ` · <b>통합검색 노출 ${c.ranks.main}번째</b>` : ""}</li>`).join("");
   const imgs = Object.values(r.pages).map(p => `<a href="${esc(p.image)}" target="_blank" rel="noopener" class="proof-shot">
     <img src="${esc(p.image)}" alt="${esc(p.label)} 캡처"><span>${esc(p.label)}</span></a>`).join("");
   $("proof").innerHTML = `<label>순위 증명 <small>${esc(r.captured_at.replace("T", " "))} 캡처 · ${ok}/${r.checks.length} 확인</small></label>

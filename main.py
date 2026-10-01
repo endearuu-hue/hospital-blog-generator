@@ -1,4 +1,5 @@
 import asyncio
+from typing import Literal
 from pathlib import Path
 
 import httpx
@@ -66,6 +67,7 @@ class RankedUrl(BaseModel):
 class ProofRequest(BaseModel):
     keyword: str = Field(min_length=1, max_length=50)
     posts: list[RankedUrl] = Field([], max_length=10)  # 상위글 분석 결과. 비우면 캡처만
+    basis: Literal["blog", "pc"] = "blog"  # 어느 화면 순위와 대조할지. 웹 비교기는 PC 검색 기준
 
 
 class CompareRequest(BaseModel):
@@ -107,7 +109,7 @@ async def proof(req: ProofRequest):
         cap = await asyncio.to_thread(serp_proof.capture, req.keyword.strip())
     except Exception as e:
         raise HTTPException(502, f"검색 화면 캡처 실패: {e}")
-    return {**cap, "checks": serp_proof.verify(cap, [p.model_dump() for p in req.posts])}
+    return {**cap, "checks": serp_proof.verify(cap, [p.model_dump() for p in req.posts], req.basis)}
 
 
 @app.post("/api/compare")

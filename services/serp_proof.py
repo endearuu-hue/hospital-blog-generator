@@ -13,9 +13,10 @@ from playwright.sync_api import sync_playwright
 PROOF_DIR = Path(__file__).resolve().parent.parent / "proofs"
 KST = timezone(timedelta(hours=9))
 TOP_N = 5
-PAGES = {  # 통합검색 = 메인 화면, 블로그탭 = 상위글 분석이 기준으로 삼는 순위
-    "main": ("통합검색", "https://m.search.naver.com/search.naver?query={}"),
-    "blog": ("블로그탭", "https://m.search.naver.com/search.naver?ssc=tab.m_blog.all&query={}"),
+PAGES = {  # 키: (이름, 주소, 모바일 화면인지). 통합검색 = 메인 화면
+    "main": ("통합검색(모바일)", "https://m.search.naver.com/search.naver?query={}", True),
+    "blog": ("블로그탭(모바일)", "https://m.search.naver.com/search.naver?ssc=tab.m_blog.all&query={}", True),  # 생성기 상위글 분석 기준
+    "pc": ("블로그탭(PC)", "https://search.naver.com/search.naver?ssc=tab.blog.all&query={}", False),  # 웹 비교기 기준
 }
 POST_RE = re.compile(r"blog\.naver\.com/([A-Za-z0-9_-]+)/(\d+)")
 # ponytail: 브라우저 하나씩만 띄움(PC 메모리 6GB). 동시에 여러 명이 쓰면 줄 서서 기다림
@@ -59,10 +60,12 @@ def capture(keyword: str) -> dict:
     with _lock, sync_playwright() as p:
         browser = p.chromium.launch()
         try:
-            # 모바일 화면 기준(네이버 검색 대부분이 모바일). 해상도는 1.5배로 낮춰 파일 크기 줄임
-            page = browser.new_page(**{**p.devices["Pixel 7"], "device_scale_factor": 1.5}, locale="ko-KR")
-            for key, (label, tpl) in PAGES.items():
+            # 모바일은 해상도를 1.5배로 낮춰 파일 크기 줄임
+            mobile = {**p.devices["Pixel 7"], "device_scale_factor": 1.5}
+            desktop = {"viewport": {"width": 1280, "height": 900}}
+            for key, (label, tpl, is_mobile) in PAGES.items():
                 url = tpl.format(quote(keyword))
+                page = browser.new_page(**(mobile if is_mobile else desktop), locale="ko-KR")
                 page.goto(url, wait_until="networkidle", timeout=30000)
                 _scroll_to(page, page.evaluate("document.body.scrollHeight"))
                 stamp = f"네이버 {label} · 검색어 「{keyword}」 · {now:%Y-%m-%d %H:%M:%S} KST · 빨간 상자 = 블로그 글 순위"
@@ -79,6 +82,7 @@ def capture(keyword: str) -> dict:
                     "posts": [{"rank": i, "url": f"https://blog.naver.com/{x['blog']}/{x['no']}", "title": x["title"]}
                               for i, x in enumerate(posts, 1)],
                 }
+                page.close()
         finally:
             browser.close()
     (PROOF_DIR / f"{stem}.json").write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -90,15 +94,14 @@ def _key(url: str) -> str:
     return f"{m[1]}/{m[2]}" if m else url
 
 
-def verify(captured: dict, posts: list[dict]) -> list[dict]:
-    """분석한 글마다 캡처 화면에서의 실제 순위. 블로그탭 순위가 분석 순위와 같아야 '확인'."""
+def verify(captured: dict, posts: list[dict], basis: str = "blog") -> list[dict]:
+    """분석한 글마다 캡처 화면별 실제 순위. 기준 화면(basis) 순위가 분석 순위와 같아야 '확인'."""
     ranks = {k: {_key(x["url"]): x["rank"] for x in pg["posts"]} for k, pg in captured["pages"].items()}
     out = []
     for p in posts:
-        blog = ranks.get("blog", {}).get(_key(p["url"]))
-        main = ranks.get("main", {}).get(_key(p["url"]))
-        status = "확인" if blog == p["rank"] else "순위 다름" if blog else "화면에 없음"
-        out.append({"rank": p["rank"], "url": p["url"], "blog_rank": blog, "main_rank": main, "status": status})
+        found = {k: r.get(_key(p["url"])) for k, r in ranks.items()}
+        status = "확인" if found.get(basis) == p["rank"] else "순위 다름" if found.get(basis) else "화면에 없음"
+        out.append({"rank": p["rank"], "url": p["url"], "ranks": found, "status": status})
     return out
 
 
@@ -108,5 +111,6 @@ if __name__ == "__main__":
     v = verify(cap, [{"rank": 1, "url": "https://m.blog.naver.com/a/1"}, {"rank": 1, "url": "https://blog.naver.com/b/2"},
                      {"rank": 3, "url": "https://blog.naver.com/c/3"}])
     assert [x["status"] for x in v] == ["확인", "순위 다름", "화면에 없음"], v
-    assert v[1]["main_rank"] == 1 and v[0]["main_rank"] is None, v
+    assert v[1]["ranks"]["main"] == 1 and v[0]["ranks"]["main"] is None, v
+    assert verify(cap, [{"rank": 1, "url": "https://blog.naver.com/b/2"}], basis="main")[0]["status"] == "확인"
     print("ok")
