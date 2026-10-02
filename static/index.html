@@ -110,7 +110,7 @@
 </style>
 </head>
 <body>
-<header><h1>병원 블로그 글 생성기</h1></header>
+<header><h1>병원 블로그 글 생성기</h1><button id="guideBtn" type="button">? 사용법</button></header>
 <main>
   <aside>
     <form class="card" id="form">
@@ -569,6 +569,78 @@ $("copyRich").onclick = async () => {
 };
 $("sideBtn").onclick = () => openSide($("keyword").value.trim());
 $("copyHtml").onclick = async () => { await navigator.clipboard.writeText(html); toast("HTML 복사됨"); };
+</script>
+<style>
+  header { display:flex; align-items:center; justify-content:space-between; }
+  #guideBtn { background:#eef0f3; padding:6px 12px; font-size:14px; }
+  #tour { position:absolute; width:min(340px, calc(100vw - 32px)); transition:top .25s, left .25s; background:var(--card); border:1px solid var(--line);
+          border-radius:12px; box-shadow:0 12px 40px rgba(0,0,0,.18); padding:16px 18px; z-index:20; font-size:14px; }
+  #tour[hidden] { display:none; }
+  #tour .t-top { display:flex; justify-content:space-between; align-items:center; color:var(--muted); font-size:12px; }
+  #tour h3 { margin:6px 0 4px; font-size:16px; }
+  #tour p { margin:0 0 10px; }
+  #tour .t-note { font-size:12px; color:#d46b08; }
+  #tour .t-nav { display:flex; gap:8px; justify-content:flex-end; }
+  #tour .t-nav button { padding:7px 12px; }
+  #tour .t-nav .go { background:var(--accent); color:#fff; font-weight:700; }
+  /* 짚는 칸 쪽으로 화살표 */
+  #tour::before { content:""; position:absolute; width:12px; height:12px; background:var(--card); border:1px solid var(--line); transform:rotate(45deg); }
+  #tour.at-right::before { left:-7px; top:24px; border-top:0; border-right:0; }
+  #tour.at-below::before { top:-7px; left:28px; border-right:0; border-bottom:0; }
+  #tour.at-inside::before { display:none; }
+  .tour-on { outline:3px solid var(--accent) !important; outline-offset:4px; border-radius:10px; transition:outline-color .2s; }
+</style>
+<div id="tour" hidden role="dialog" aria-labelledby="tourTitle">
+  <div class="t-top"><span id="tourCount"></span><button class="ghost" style="padding:2px 8px" onclick="endTour()">닫기 ✕</button></div>
+  <h3 id="tourTitle"></h3><p id="tourText"></p><p class="t-note" id="tourNote"></p>
+  <div class="t-nav"><button class="ghost" id="tourPrev">이전</button><button class="go" id="tourNext">다음</button></div>
+</div>
+<script>
+const GUIDE = [
+  ["form", "1. 키워드 넣기", "메인 키워드와 병원명을 넣고 <b>① 세부 주제 찾기</b>를 누르세요. 네이버 상위글 분석도 같이 시작돼요."],
+  ["benchCard", "2. 상위글 기준 확인", "네이버 상위 5개 글의 분량·키워드·사진·인용구 기준이 나와요. 숫자는 고칠 수 있고, 추천 제목을 고르면 그대로 써요. <b>검색 화면 캡처로 순위 증명</b>을 누르면 실제 네이버 화면과 순위를 대조해요."],
+  ["topicCard", "3. 주제 고르고 생성", "추천 세부 주제 하나를 고르고 <b>② 이 주제로 글 생성</b>을 누르세요. 1~2분 걸려요."],
+  ["preview", "4. 결과 다듬기", "점수표와 상위 5개 비교가 나와요. <b>상위 노출 글과 비교</b>로 나란히 보고, 빠진 주제는 <b>보충해서 다시 쓰기</b>로 채워요."],
+  ["copyRich", "5. 블로그에 옮기기", "<b>블로그용 복사</b> 후 네이버 블로그 에디터에 붙여넣으면 소제목·인용구 서식이 그대로예요. 📷 자리에 사진을 넣으세요."],
+  ["trackCard", "6. 순위 추적", "키워드를 추가하면 매일 오전 9시에 1~10위를 기록해요. <b>보기</b>를 누르면 날짜별 순위와 그날 캡처가 나와요."],
+];
+const GUIDE_TIP = "생성기는 <b>start.bat</b>로 켜요(창을 닫으면 꺼져요). 글 생성은 구독으로 무료예요.";
+let tourAt = 0;
+function showStep(i) {
+  tourAt = i;
+  document.querySelectorAll(".tour-on").forEach(e => e.classList.remove("tour-on"));
+  const [id, t, d] = GUIDE[i], el = $(id);
+  const visible = el && !el.closest("[hidden]") && el.offsetParent !== null;
+  $("tourCount").textContent = `${i + 1} / ${GUIDE.length}`;
+  $("tourTitle").textContent = t;
+  $("tourText").innerHTML = d + (i === GUIDE.length - 1 ? `<br><small>${GUIDE_TIP}</small>` : "");
+  $("tourNote").textContent = visible ? "" : "이 칸은 앞 단계를 하면 나타나요.";
+  const anchor = visible ? el : $("form");  // 아직 안 나타난 칸은 시작 칸 옆에서 안내
+  if (visible) el.classList.add("tour-on");
+  placeTour(anchor);
+  // 긴 칸은 윗부분이 보이게, 나머지는 칸을 가운데로
+  anchor.scrollIntoView({behavior: "smooth", block: $("tour").className === "at-inside" ? "start" : "center"});
+  $("tourPrev").disabled = i === 0;
+  $("tourNext").textContent = i === GUIDE.length - 1 ? "끝" : "다음";
+}
+// 짚는 칸 오른쪽에 붙임. 자리가 없으면 아래에, 세로로 긴 칸(결과 영역)은 칸 안쪽 오른쪽 위에.
+// 페이지 좌표라 스크롤해도 같이 움직임
+function placeTour(el) {
+  const t = $("tour"), r = el.getBoundingClientRect(), w = t.offsetWidth, gap = 16, vw = document.documentElement.clientWidth;
+  const mode = r.right + gap + w <= vw - gap ? "at-right" : r.height > innerHeight * 0.4 ? "at-inside" : "at-below";
+  const left = {"at-right": r.right + gap, "at-inside": r.right - w - gap, "at-below": r.left}[mode];
+  t.className = mode;
+  t.style.left = Math.min(Math.max(gap, left), vw - w - gap) + scrollX + "px";
+  t.style.top = (mode === "at-below" ? r.bottom + gap : mode === "at-inside" ? r.top + gap : r.top) + scrollY + "px";
+  t.anchor = el;
+}
+addEventListener("resize", () => { if (!$("tour").hidden && $("tour").anchor) placeTour($("tour").anchor); });
+function endTour() { $("tour").hidden = true; document.querySelectorAll(".tour-on").forEach(e => e.classList.remove("tour-on")); }
+$("tourPrev").onclick = () => showStep(tourAt - 1);
+$("tourNext").onclick = () => tourAt === GUIDE.length - 1 ? endTour() : showStep(tourAt + 1);
+$("guideBtn").onclick = () => { $("tour").hidden = false; showStep(0); };
+// 처음 연 사람에게만 자동으로 한 번
+try { if (!localStorage.getItem("guideSeen")) { $("guideBtn").click(); localStorage.setItem("guideSeen", "1"); } } catch {}
 </script>
 </body>
 </html>
